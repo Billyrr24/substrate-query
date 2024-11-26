@@ -5,30 +5,40 @@ module.exports = async (req, res) => {
     const wsProvider = new WsProvider('wss://rpc-mainnet.vtrs.io:443');
     const api = await ApiPromise.create({ provider: wsProvider });
 
-    const keys = await api.query.system.account.keys();
-    const accountIds = keys.map((key) => key.args[0].toHuman());
+    console.log("Connected to Substrate!");
 
+    const assetId = 1;
+    console.log("Fetching accounts for asset ID:", assetId);
+
+    const keys = await api.query.assets.account.keys(assetId);
     const accounts = await Promise.all(
-      accountIds.map(async (accountId) => {
-        const accountInfo = await api.query.system.account(accountId);
-        return {
-          accountId,
-          nonce: accountInfo.nonce.toString(),
-          consumers: accountInfo.consumers.toString(),
-          providers: accountInfo.providers.toString(),
-          sufficients: accountInfo.sufficients.toString(),
-          data: {
-            free: accountInfo.data.free.toString(),
-            reserved: accountInfo.data.reserved.toString(),
-            frozen: accountInfo.data.frozen.toString(),
-            flags: accountInfo.data.flags.toString(),
-          },
-        };
+      keys.map(async (key) => {
+        const accountId = key.args[1].toHuman();
+        const accountInfo = await api.query.assets.account(assetId, accountId);
+
+        if (accountInfo.isSome) {
+          const accountDetails = accountInfo.unwrap();
+
+          return {
+            assetId,
+            accountId,
+            balance: accountDetails.balance.toString(),
+            status: accountDetails.status.toHuman(),
+          };
+        } else {
+          return {
+            assetId,
+            accountId,
+            balance: "0",
+            status: "None",
+          };
+        }
       })
     );
 
-    res.status(200).json(accounts);
+    res.status(200).json(accounts); // Return the data as JSON
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Error:", error.message);
+    res.status(500).send("Error fetching data");
   }
 };
