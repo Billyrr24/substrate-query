@@ -4,24 +4,37 @@ const { ApiPromise, WsProvider } = require('@polkadot/api');
 // Define your handler function for Vercel
 module.exports = async (req, res) => {
   try {
-    // Logic for querying the blockchain (or other logic) goes here
+    // Initialize the WebSocket provider and API instance
     const provider = new WsProvider('wss://rpc-mainnet.vtrs.io:443');
     const api = await ApiPromise.create({ provider });
 
-    // Fetch VIP Members (as you did earlier)
+    // Fetch VIP Members
     const vipMembers = await api.query.privileges.vipMembers.entries();
 
+    // Log the response to check its structure
+    console.log('VIP Members data:', vipMembers);  // Add this line
+
+    // Initialize an array to store the results
     const results = [];
+
+    // Process each VIP Member
     for (let [key, value] of vipMembers) {
-      // Processing each VIP Member as you did
-      const member = {
-        address: key.toString(),
-        start: value.start.toString(),
-        taxType: value.taxType.toString(),
-        points: value.points.toString(),
-        activeStake: value.activeStake.toString(),
-      };
-      results.push(member);
+      // Log individual VIP Member data for debugging
+      console.log('Processing VIP Member:', key, value);  // Add this line
+
+      // Check if key and value are defined and process them
+      if (key && value) {
+        const member = {
+          address: key.toString(),
+          start: value.start ? value.start.toString() : 'N/A',  // Check if 'start' exists
+          taxType: value.taxType ? value.taxType.toString() : 'N/A',  // Check if 'taxType' exists
+          points: value.points ? value.points.toString() : 'N/A',  // Check if 'points' exists
+          activeStake: value.activeStake ? value.activeStake.toString() : 'N/A',  // Check if 'activeStake' exists
+        };
+        results.push(member);
+      } else {
+        console.error('Missing data for VIP Member at index:', key);
+      }
     }
 
     // Send the processed data back as the response
