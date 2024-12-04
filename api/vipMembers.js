@@ -1,53 +1,51 @@
-// Import required modules or libraries (e.g., for blockchain querying)
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 
-// Define your handler function for Vercel
+// This is the handler function that Vercel expects for API routes
 module.exports = async (req, res) => {
+  const wsProvider = new WsProvider('wss://rpc-mainnet.vtrs.io:443'); // Use your RPC endpoint
+  const api = await ApiPromise.create({ provider: wsProvider });
+
   try {
-    // Initialize the WebSocket provider and API instance
-    const provider = new WsProvider('wss://rpc-mainnet.vtrs.io:443');
-    const api = await ApiPromise.create({ provider });
-
-    // Fetch VIP Members
+    // Query the vipMembers in the privileges pallet
     const vipMembers = await api.query.privileges.vipMembers.entries();
-
-    // Log the response to check its structure
-    console.log('VIP Members data:', vipMembers);
-
-    // Initialize an array to store the results
-    const results = [];
-
-    // Process each VIP Member
-    for (let [key, value] of vipMembers) {
-      // Log the individual key and value for debugging
-      console.log('Processing VIP Member - Key:', key.toString());
-      console.log('Processing VIP Member - Value:', value.toJSON());  // Log value in JSON format
-
-      // Check if key and value are defined and process them
-      if (key && value) {
-        // Convert hex values for points and activeStake to decimal
-        const points = value.points ? parseInt(value.points, 16) : 'N/A';
-        const activeStake = value.activeStake ? parseInt(value.activeStake, 16) : 'N/A';
-
-        // Build the member object
-        const member = {
-          address: key.toString(),
-          start: value.start ? value.start.toString() : 'N/A',  // 'start' should be in milliseconds
-          taxType: value.taxType || 'N/A',  // Use taxType directly if available
-          points: points !== 'N/A' ? points.toString() : 'N/A',  // Convert to string after processing
-          activeStake: activeStake !== 'N/A' ? activeStake.toString() : 'N/A',  // Convert to string after processing
-        };
-
-        results.push(member);
-      } else {
-        console.error('Missing data for VIP Member at index:', key);
-      }
+    
+    // Check if data exists
+    if (vipMembers.length === 0) {
+      console.log('No VIP members found.');
+      return res.status(200).json({ message: 'No VIP members found.' });
     }
 
-    // Send the processed data back as the response
+    // Process and prepare the data for response
+    const results = [];
+    vipMembers.forEach(([key, value], index) => {
+      const address = key.toHuman()[0]; // Address of the VIP member
+      const data = value.unwrapOr(null); // Unwrap the Option
+
+      if (data) {
+        const start = data.start.toString();
+        const taxType = data.taxType.toString();
+        const points = data.points.toString();
+        const activeStake = data.activeStake.toString();
+
+        results.push({
+          address: address,
+          start: start,
+          taxType: taxType,
+          points: points,
+          activeStake: activeStake,
+        });
+      } else {
+        console.log(`VIP Member ${index + 1}: No data available`);
+      }
+    });
+
+    // Return the processed data as JSON
     res.status(200).json(results);
   } catch (error) {
-    console.error('Error processing VIP Members:', error);
-    res.status(500).send('Internal Server Error');
+    console.error('Error querying VIP members:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  } finally {
+    // Disconnect after the query
+    await api.disconnect();
   }
 };
