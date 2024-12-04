@@ -2,21 +2,25 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.js",
+      "src": "api/vippMembers.js",
       "use": "@vercel/node"
     },
     {
-      "src": "api/vipMembers.js",  // Corrected to the vipMembers.js function
+      "src": "api/vipMembers.js",  
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/api/vipMembers",    // Direct the vipMembers route to the new file
+      "src": "/api/vippMembers",  
+      "dest": "/api/vippMembers.js"
+    },
+    {
+      "src": "/api/vipMembers",   
       "dest": "/api/vipMembers.js"
     },
     {
-      "src": "/api/.*",            // Default route for other API functions
+      "src": "/api/.*",           
       "dest": "/api/index.js"
     }
   ]
