@@ -25,13 +25,19 @@ module.exports = async (req, res) => {
 
       // Check if key and value are defined and process them
       if (key && value) {
+        // Convert hex values for points and activeStake to decimal
+        const points = value.points ? parseInt(value.points, 16) : 'N/A';
+        const activeStake = value.activeStake ? parseInt(value.activeStake, 16) : 'N/A';
+
+        // Build the member object
         const member = {
           address: key.toString(),
-          start: value.start ? value.start.toString() : 'N/A',  // Check if 'start' exists
-          taxType: value.taxType ? value.taxType.toString() : 'N/A',  // Check if 'taxType' exists
-          points: value.points ? value.points.toString() : 'N/A',  // Check if 'points' exists
-          activeStake: value.activeStake ? value.activeStake.toString() : 'N/A',  // Check if 'activeStake' exists
+          start: value.start ? value.start.toString() : 'N/A',  // 'start' should be in milliseconds
+          taxType: value.taxType || 'N/A',  // Use taxType directly if available
+          points: points !== 'N/A' ? points.toString() : 'N/A',  // Convert to string after processing
+          activeStake: activeStake !== 'N/A' ? activeStake.toString() : 'N/A',  // Convert to string after processing
         };
+
         results.push(member);
       } else {
         console.error('Missing data for VIP Member at index:', key);
