@@ -4,9 +4,17 @@
     {
       "src": "api/index.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "api/vippMembers.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
+    {
+      "src": "/api/vippMembers",
+      "dest": "/api/vippMembers.js"
+    },
     {
       "src": "/api/.*",
       "dest": "/api/index.js"
