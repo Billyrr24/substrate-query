@@ -12,15 +12,16 @@ module.exports = async (req, res) => {
     const vipMembers = await api.query.privileges.vipMembers.entries();
 
     // Log the response to check its structure
-    console.log('VIP Members data:', vipMembers);  // Add this line
+    console.log('VIP Members data:', vipMembers);
 
     // Initialize an array to store the results
     const results = [];
 
     // Process each VIP Member
     for (let [key, value] of vipMembers) {
-      // Log individual VIP Member data for debugging
-      console.log('Processing VIP Member:', key, value);  // Add this line
+      // Log the individual key and value for debugging
+      console.log('Processing VIP Member - Key:', key.toString());
+      console.log('Processing VIP Member - Value:', value.toJSON());  // Log value in JSON format
 
       // Check if key and value are defined and process them
       if (key && value) {
