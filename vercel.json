@@ -6,17 +6,17 @@
       "use": "@vercel/node"
     },
     {
-      "src": "api/vippMembers.js",
+      "src": "api/vipMembers.js",  // Corrected to the vipMembers.js function
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/api/vippMembers",
-      "dest": "/api/vippMembers.js"
+      "src": "/api/vipMembers",    // Direct the vipMembers route to the new file
+      "dest": "/api/vipMembers.js"
     },
     {
-      "src": "/api/.*",
+      "src": "/api/.*",            // Default route for other API functions
       "dest": "/api/index.js"
     }
   ]
