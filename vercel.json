@@ -10,6 +10,10 @@
       "use": "@vercel/node"
     },
     {
+      "src": "api/vestingCurrent.js",
+      "use": "@vercel/node"
+    },
+    {
       "src": "api/vipMembers.js",  
       "use": "@vercel/node"
     }
@@ -26,6 +30,10 @@
     {
       "src": "/api/vesting",
       "dest": "/api/vesting.js"
+    },
+    {
+      "src": "/api/vestingCurrent",
+      "dest": "/api/vestingCurrent.js"
     },
     {
       "src": "/api/.*",           
