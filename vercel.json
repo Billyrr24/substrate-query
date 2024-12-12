@@ -24,12 +24,12 @@
       "dest": "/api/vipMembers.js"
     },
     {
-      "src": "/api/.*",           
-      "dest": "/api/index.js"
-    },
-    {
       "src": "/api/vesting",
       "dest": "/api/vesting.js"
+    },
+    {
+      "src": "/api/.*",           
+      "dest": "/api/index.js"
     }
   ]
 }
