@@ -6,6 +6,10 @@
       "use": "@vercel/node"
     },
     {
+      "src": "api/vesting.js",
+      "use": "@vercel/node"
+    },
+    {
       "src": "api/vipMembers.js",  
       "use": "@vercel/node"
     }
