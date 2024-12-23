@@ -16,6 +16,10 @@
     {
       "src": "api/vipMembers.js",  
       "use": "@vercel/node"
+    },
+    {
+      "src": "api/QuerySolostake.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -34,6 +38,10 @@
     {
       "src": "/api/vestingCurrent",
       "dest": "/api/vestingCurrent.js"
+    },
+    {
+      "src": "/api/QuerySolostake",
+      "dest": "/api/QuerySolostake.js"
     },
     {
       "src": "/api/.*",           
