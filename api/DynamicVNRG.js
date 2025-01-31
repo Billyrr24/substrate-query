@@ -14,7 +14,10 @@ module.exports = async (req, res) => {
 
         // Query the current era first
         const currentEra = await api.query.energyGeneration.currentEra();
-        const previousEra = currentEra.toNumber() - 1; // Get previous era
+        console.log('Current Era:', currentEra.toHuman()); // Debug log
+
+        const previousEra = currentEra.toNumber() - 1;
+        console.log('Previous Era:', previousEra); // Debug log
 
         // Query all extrinsics including the previous era's energy data
         const [
@@ -24,8 +27,7 @@ module.exports = async (req, res) => {
             sessionEnergySale,
             energyCapacity,
             currentEnergyPerStakeCurrency,
-            baseFee,
-            previousEraEnergyPerStakeCurrency
+            baseFee
         ] = await Promise.all([
             api.query.dynamicEnergy.exchangeRate(),
             api.query.dynamicEnergy.annualPercentageRate(),
@@ -33,9 +35,17 @@ module.exports = async (req, res) => {
             api.query.dynamicEnergy.sessionEnergySale(),
             api.query.energyBroker.energyCapacity(),
             api.query.energyGeneration.currentEnergyPerStakeCurrency(),
-            api.query.energyFee.baseFee(),
-            api.query.energyGeneration.erasEnergyPerStakeCurrency(previousEra)
+            api.query.energyFee.baseFee()
         ]);
+
+        // Query the previous era's energy per stake currency separately
+        let previousEraEnergyPerStakeCurrency;
+        if (previousEra >= 0) { // Ensure previousEra is valid
+            previousEraEnergyPerStakeCurrency = await api.query.energyGeneration.erasEnergyPerStakeCurrency(previousEra);
+            console.log('Previous Era Energy Per Stake Currency:', previousEraEnergyPerStakeCurrency.toHuman()); // Debug log
+        } else {
+            previousEraEnergyPerStakeCurrency = 'N/A';
+        }
 
         // Format data into a single object
         const output = {
@@ -57,6 +67,9 @@ module.exports = async (req, res) => {
                 baseFee: baseFee.toHuman(),
             }
         };
+
+        // Log output for debugging
+        console.log('Final Output:', JSON.stringify(output, null, 2));
 
         // Return the data as JSON
         res.status(200).json(output);
