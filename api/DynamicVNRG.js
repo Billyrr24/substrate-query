@@ -28,7 +28,8 @@ module.exports = async (req, res) => {
             api.query.dynamicEnergy.sessionEnergySale(),
             api.query.energyBroker.energyCapacity(),
             api.query.energyGeneration.currentEnergyPerStakeCurrency(),
-            api.query.energyFee.baseFee() // Added energyFee.baseFee query
+            api.query.energyFee.baseFee() 
+            api.energyGeneration.erasEnergyPerStakeCurrency()
         ]);
 
         // Format data into a single object
@@ -46,7 +47,10 @@ module.exports = async (req, res) => {
                 currentEnergyPerStakeCurrency: currentEnergyPerStakeCurrency.toHuman(),
             },
             energyFee: {
-                baseFee: baseFee.toHuman() // Added energyFee.baseFee to output
+                baseFee: baseFee.toHuman(),
+            },
+            energyGeneration: {
+                erasEnergyPerStakeCurrency: erasEnergyPerStakeCurrency.tohuman()
             }
         };
 
