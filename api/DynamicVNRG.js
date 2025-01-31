@@ -2,7 +2,7 @@
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 
 // Define WebSocket endpoint
-const WS_ENDPOINT = 'wss://rpc.testnet.compliq.io:9945';
+const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
 
 module.exports = async (req, res) => {
     try {
@@ -20,6 +20,7 @@ module.exports = async (req, res) => {
             sessionEnergySale,
             energyCapacity,
             currentEnergyPerStakeCurrency,
+            baseFee
         ] = await Promise.all([
             api.query.dynamicEnergy.exchangeRate(),
             api.query.dynamicEnergy.annualPercentageRate(),
@@ -27,6 +28,7 @@ module.exports = async (req, res) => {
             api.query.dynamicEnergy.sessionEnergySale(),
             api.query.energyBroker.energyCapacity(),
             api.query.energyGeneration.currentEnergyPerStakeCurrency(),
+            api.query.energyFee.baseFee() // Added energyFee.baseFee query
         ]);
 
         // Format data into a single object
@@ -43,6 +45,9 @@ module.exports = async (req, res) => {
             energyGeneration: {
                 currentEnergyPerStakeCurrency: currentEnergyPerStakeCurrency.toHuman(),
             },
+            energyFee: {
+                baseFee: baseFee.toHuman() // Added energyFee.baseFee to output
+            }
         };
 
         // Return the data as JSON
