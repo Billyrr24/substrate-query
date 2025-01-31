@@ -1,4 +1,4 @@
-// Install dependencies with: npm install @polkadot/api
+// Install dependencies with: npm install @polkadot/api 
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 
 // Define WebSocket endpoint
@@ -12,7 +12,11 @@ module.exports = async (req, res) => {
 
         console.log('Connected to the Substrate blockchain.');
 
-        // Query all extrinsics
+        // Query the current era first
+        const currentEra = await api.query.energyGeneration.currentEra();
+        const previousEra = currentEra.toNumber() - 1; // Get previous era
+
+        // Query all extrinsics including the previous era's energy data
         const [
             exchangeRate,
             annualPercentageRate,
@@ -20,7 +24,8 @@ module.exports = async (req, res) => {
             sessionEnergySale,
             energyCapacity,
             currentEnergyPerStakeCurrency,
-            baseFee
+            baseFee,
+            previousEraEnergyPerStakeCurrency
         ] = await Promise.all([
             api.query.dynamicEnergy.exchangeRate(),
             api.query.dynamicEnergy.annualPercentageRate(),
@@ -28,8 +33,8 @@ module.exports = async (req, res) => {
             api.query.dynamicEnergy.sessionEnergySale(),
             api.query.energyBroker.energyCapacity(),
             api.query.energyGeneration.currentEnergyPerStakeCurrency(),
-            api.query.energyFee.baseFee() 
-            api.energyGeneration.erasEnergyPerStakeCurrency()
+            api.query.energyFee.baseFee(),
+            api.query.energyGeneration.erasEnergyPerStakeCurrency(previousEra)
         ]);
 
         // Format data into a single object
@@ -45,12 +50,11 @@ module.exports = async (req, res) => {
             },
             energyGeneration: {
                 currentEnergyPerStakeCurrency: currentEnergyPerStakeCurrency.toHuman(),
+                previousEraEnergyPerStakeCurrency: previousEraEnergyPerStakeCurrency.toHuman(),
+                previousEra: previousEra, // Include the previous era number for reference
             },
             energyFee: {
                 baseFee: baseFee.toHuman(),
-            },
-            energyGeneration: {
-                erasEnergyPerStakeCurrency: erasEnergyPerStakeCurrency.tohuman()
             }
         };
 
