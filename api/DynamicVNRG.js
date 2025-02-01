@@ -1,5 +1,6 @@
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 
+// Define WebSocket endpoint
 const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
 
 module.exports = async (req, res) => {
@@ -8,17 +9,12 @@ module.exports = async (req, res) => {
         const provider = new WsProvider(WS_ENDPOINT);
         const api = await ApiPromise.create({ provider });
 
-        console.log('Connected to the Substrate blockchain.');
-
         // Query the current era
         const currentEraRaw = await api.query.energyGeneration.currentEra();
-        const currentEra = currentEraRaw.toNumber();
-        const previousEra = currentEra > 0 ? currentEra - 1 : null; // Prevent -1 values
+        const currentEra = parseInt(currentEraRaw.toString(), 10);
+        const previousEra = currentEra > 0 ? currentEra - 1 : null;
 
-        console.log('Current Era:', currentEra);
-        console.log('Previous Era:', previousEra !== null ? previousEra : "N/A");
-
-        // Query extrinsics
+        // Query all extrinsics, including the previous era's energy data
         const queries = [
             api.query.dynamicEnergy.exchangeRate(),
             api.query.dynamicEnergy.annualPercentageRate(),
@@ -32,7 +28,7 @@ module.exports = async (req, res) => {
         if (previousEra !== null) {
             queries.push(api.query.energyGeneration.erasEnergyPerStakeCurrency(previousEra));
         } else {
-            queries.push(Promise.resolve(null)); // Placeholder to keep array alignment
+            queries.push(Promise.resolve(null)); // Placeholder
         }
 
         // Execute all queries
@@ -49,8 +45,6 @@ module.exports = async (req, res) => {
             baseFee,
             previousEraEnergyPerStakeCurrency
         ] = results;
-
-        console.log("Raw Results:", results.map(r => r?.toHuman?.() || r));
 
         // Format output
         const output = {
@@ -73,12 +67,11 @@ module.exports = async (req, res) => {
             }
         };
 
-        console.log('Final Output:', JSON.stringify(output, null, 2));
-
-        // Return JSON response
+        // Return the data as JSON
         res.status(200).json(output);
+
     } catch (error) {
-        console.error('Error querying the blockchain:', error.message, error.stack);
-        res.status(500).json({ error: `Blockchain query failed: ${error.message}` });
+        console.error('Error querying the blockchain:', error.message);
+        res.status(500).json({ error: 'Failed to fetch data from the blockchain.' });
     }
 };
