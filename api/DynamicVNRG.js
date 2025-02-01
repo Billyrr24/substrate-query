@@ -13,12 +13,32 @@ module.exports = async (req, res) => {
         // Query the current era
         const currentEraRaw = await api.query.energyGeneration.currentEra();
         const currentEra = currentEraRaw.toNumber();
-        const previousEra = currentEra - 1;
+        const previousEra = currentEra > 0 ? currentEra - 1 : null; // Prevent -1 values
 
         console.log('Current Era:', currentEra);
-        console.log('Previous Era:', previousEra);
+        console.log('Previous Era:', previousEra !== null ? previousEra : "N/A");
 
-        // Query all extrinsics
+        // Query extrinsics
+        const queries = [
+            api.query.dynamicEnergy.exchangeRate(),
+            api.query.dynamicEnergy.annualPercentageRate(),
+            api.query.dynamicEnergy.sessionEnergyBurn(),
+            api.query.dynamicEnergy.sessionEnergySale(),
+            api.query.energyBroker.energyCapacity(),
+            api.query.energyGeneration.currentEnergyPerStakeCurrency(),
+            api.query.energyFee.baseFee(),
+        ];
+
+        if (previousEra !== null) {
+            queries.push(api.query.energyGeneration.erasEnergyPerStakeCurrency(previousEra));
+        } else {
+            queries.push(Promise.resolve(null)); // Placeholder to keep array alignment
+        }
+
+        // Execute all queries
+        const results = await Promise.all(queries);
+
+        // Assign values
         const [
             exchangeRate,
             annualPercentageRate,
@@ -28,35 +48,28 @@ module.exports = async (req, res) => {
             currentEnergyPerStakeCurrency,
             baseFee,
             previousEraEnergyPerStakeCurrency
-        ] = await Promise.all([
-            api.query.dynamicEnergy.exchangeRate(),
-            api.query.dynamicEnergy.annualPercentageRate(),
-            api.query.dynamicEnergy.sessionEnergyBurn(),
-            api.query.dynamicEnergy.sessionEnergySale(),
-            api.query.energyBroker.energyCapacity(),
-            api.query.energyGeneration.currentEnergyPerStakeCurrency(),
-            api.query.energyFee.baseFee(),
-            api.query.energyGeneration.erasEnergyPerStakeCurrency(previousEra)
-        ]);
+        ] = results;
 
-        // Format data into a clean JSON structure
+        console.log("Raw Results:", results.map(r => r?.toHuman?.() || r));
+
+        // Format output
         const output = {
-            previousEra, // Now separate from `energyGeneration`
+            previousEra,
             dynamicEnergy: {
-                exchangeRate: exchangeRate.toHuman(),
-                annualPercentageRate: annualPercentageRate.toHuman(),
-                sessionEnergyBurn: sessionEnergyBurn.toHuman(),
-                sessionEnergySale: sessionEnergySale.toHuman(),
+                exchangeRate: exchangeRate?.toHuman() || "N/A",
+                annualPercentageRate: annualPercentageRate?.toHuman() || "N/A",
+                sessionEnergyBurn: sessionEnergyBurn?.toHuman() || "N/A",
+                sessionEnergySale: sessionEnergySale?.toHuman() || "N/A",
             },
             energyBroker: {
-                energyCapacity: energyCapacity.toHuman(),
+                energyCapacity: energyCapacity?.toHuman() || "N/A",
             },
             energyGeneration: {
-                currentEnergyPerStakeCurrency: currentEnergyPerStakeCurrency.toHuman(),
-                previousEraEnergyPerStakeCurrency: previousEraEnergyPerStakeCurrency.toHuman(),
+                currentEnergyPerStakeCurrency: currentEnergyPerStakeCurrency?.toHuman() || "N/A",
+                previousEraEnergyPerStakeCurrency: previousEraEnergyPerStakeCurrency?.toHuman() || "N/A",
             },
             energyFee: {
-                baseFee: baseFee.toHuman(),
+                baseFee: baseFee?.toHuman() || "N/A",
             }
         };
 
@@ -65,7 +78,7 @@ module.exports = async (req, res) => {
         // Return JSON response
         res.status(200).json(output);
     } catch (error) {
-        console.error('Error querying the blockchain:', error);
-        res.status(500).json({ error: 'Failed to fetch data from the blockchain.' });
+        console.error('Error querying the blockchain:', error.message, error.stack);
+        res.status(500).json({ error: `Blockchain query failed: ${error.message}` });
     }
 };
