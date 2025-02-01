@@ -1,6 +1,5 @@
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 
-// Define WebSocket endpoint
 const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
 
 module.exports = async (req, res) => {
@@ -9,12 +8,17 @@ module.exports = async (req, res) => {
         const provider = new WsProvider(WS_ENDPOINT);
         const api = await ApiPromise.create({ provider });
 
-        // Query current era safely
-        const currentEraRaw = await api.query.energyGeneration.currentEra();
-        const currentEra = currentEraRaw.toJSON();
-        const previousEra = currentEra - 1; // Get currentEra - 1
+        console.log('Connected to the Substrate blockchain.');
 
-        // Fetch all required data
+        // Query the current era
+        const currentEraRaw = await api.query.energyGeneration.currentEra();
+        const currentEra = currentEraRaw.toNumber();
+        const previousEra = currentEra - 1;
+
+        console.log('Current Era:', currentEra);
+        console.log('Previous Era:', previousEra);
+
+        // Query all extrinsics
         const [
             exchangeRate,
             annualPercentageRate,
@@ -23,7 +27,7 @@ module.exports = async (req, res) => {
             energyCapacity,
             currentEnergyPerStakeCurrency,
             baseFee,
-            erasEnergyPerStakeCurrency
+            previousEraEnergyPerStakeCurrency
         ] = await Promise.all([
             api.query.dynamicEnergy.exchangeRate(),
             api.query.dynamicEnergy.annualPercentageRate(),
@@ -32,11 +36,12 @@ module.exports = async (req, res) => {
             api.query.energyBroker.energyCapacity(),
             api.query.energyGeneration.currentEnergyPerStakeCurrency(),
             api.query.energyFee.baseFee(),
-            api.query.energyGeneration.erasEnergyPerStakeCurrency(previousEra) // Query for previous era
+            api.query.energyGeneration.erasEnergyPerStakeCurrency(previousEra)
         ]);
 
-        // Format response JSON
-        const responseData = {
+        // Format data into a clean JSON structure
+        const output = {
+            previousEra, // Now separate from `energyGeneration`
             dynamicEnergy: {
                 exchangeRate: exchangeRate.toHuman(),
                 annualPercentageRate: annualPercentageRate.toHuman(),
@@ -48,23 +53,19 @@ module.exports = async (req, res) => {
             },
             energyGeneration: {
                 currentEnergyPerStakeCurrency: currentEnergyPerStakeCurrency.toHuman(),
-                erasEnergyPerStakeCurrency: {
-                    era: previousEra,
-                    value: erasEnergyPerStakeCurrency.toHuman()
-                }
+                previousEraEnergyPerStakeCurrency: previousEraEnergyPerStakeCurrency.toHuman(),
             },
             energyFee: {
-                baseFee: baseFee.toHuman()
+                baseFee: baseFee.toHuman(),
             }
         };
 
-        // Close WebSocket connection
-        await api.disconnect();
+        console.log('Final Output:', JSON.stringify(output, null, 2));
 
-        // Return response as JSON
-        return res.status(200).json(responseData);
+        // Return JSON response
+        res.status(200).json(output);
     } catch (error) {
         console.error('Error querying the blockchain:', error);
-        return res.status(500).json({ error: 'Failed to fetch data from the blockchain.' });
+        res.status(500).json({ error: 'Failed to fetch data from the blockchain.' });
     }
 };
