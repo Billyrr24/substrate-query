@@ -28,9 +28,9 @@ module.exports = async (req, res) => {
 
     // Format accumulated energy burn data
     const energyBurnData = energyBurnEntries.map(([key, value]) => {
-      const accountId = key.args[0].toString();
+      const session = key.args[0].toString();
       const amount = value.toString();
-      return { accountId, amount };
+      return { session, amount };
     });
 
     // Prepare the response data
