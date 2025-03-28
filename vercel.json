@@ -10,6 +10,10 @@
       "use": "@vercel/node"
     },
     {
+      "src": "api/DynamicVNRG2.js",
+      "use": "@vercel/node"
+    },
+    {
       "src": "api/vesting.js",
       "use": "@vercel/node"
     },
@@ -34,6 +38,10 @@
     {
       "src": "/api/DynamicVNRG",
       "dest": "/api/DynamicVNRG.js"
+    },
+    {
+      "src": "/api/DynamicVNRG2",
+      "dest": "/api/DynamicVNRG2.js"
     },
     {
       "src": "/api/vipMembers",   
