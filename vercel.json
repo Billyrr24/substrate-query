@@ -1,13 +1,11 @@
 {
   "version": 2,
-
   "functions": {
     "api/extrinsicsRange.js": {
-      "memory": 1024, 
+      "memory": 1024,
       "maxDuration": 30
     }
   },
-
   "builds": [
     { "src": "api/vippMembers.js",      "use": "@vercel/node" },
     { "src": "api/DynamicVNRG.js",      "use": "@vercel/node" },
@@ -18,7 +16,6 @@
     { "src": "api/vipMembers.js",       "use": "@vercel/node" },
     { "src": "api/QuerySolostake.js",   "use": "@vercel/node" }
   ],
-
   "routes": [
     { "src": "/api/vippMembers",     "dest": "/api/vippMembers.js" },
     { "src": "/api/DynamicVNRG",     "dest": "/api/DynamicVNRG.js" },
