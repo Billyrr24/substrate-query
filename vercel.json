@@ -3,7 +3,7 @@
   "functions": {
     "api/extrinsicsRange.js": {
       "memory": 1024,
-      "maxDuration": 30
+      "maxDuration": 29
     }
   },
   "builds": [
