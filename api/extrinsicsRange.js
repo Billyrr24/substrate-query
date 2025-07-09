@@ -1,73 +1,93 @@
+// /api/extrinsicsRange.js  (Vercel serverless function)
+
 import { ApiPromise, WsProvider } from '@polkadot/api';
-import { decodeAddress } from '@polkadot/util-crypto';
-import { typesBundle } from '../types-bundle/index.js';  // not from api/
+import { typesBundle }           from '../types-bundle/index.js';    // ← path out of /api/
+import { decodeAddress }         from '@polkadot/util-crypto';
 
+// ---------- helper: BigInt-safe JSON replacer ----------
+const safeJson = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
 
+// ---------- Vercel handler ----------
 export default async function handler(req, res) {
-  const { start, end } = req.query;
+  try {
+    // --- validate query params ---
+    const { start, end } = req.query;
+    const startBlock = Number(start);
+    const endBlock   = Number(end);
 
-  if (!start || !end) {
-    return res.status(400).json({ error: 'Missing start or end block query parameters' });
-  }
+    if (!Number.isInteger(startBlock) || !Number.isInteger(endBlock) || startBlock > endBlock) {
+      return res.status(400).json({ error: 'Invalid ?start or ?end block numbers' });
+    }
 
-  const startBlock = parseInt(start);
-  const endBlock = parseInt(end);
+    // --- connect with custom types bundle ---
+    const api = await ApiPromise.create({
+      provider: new WsProvider('wss://rpc-mainnet.vtrs.io:443'),
+      typesBundle,                   // 👈 your custom bundle
+      throwOnUnknown: false
+    });
 
-  if (isNaN(startBlock) || isNaN(endBlock) || startBlock > endBlock) {
-    return res.status(400).json({ error: 'Invalid block range' });
-  }
+    const results = [];
 
-  const provider = new WsProvider('wss://rpc-mainnet.vtrs.io:443');
-  const api = await ApiPromise.create({ provider });
+    for (let bn = startBlock; bn <= endBlock; bn++) {
+      const hash = await api.rpc.chain.getBlockHash(bn);
 
-  const results = [];
+      // parallel RPCs for speed
+      const [signedBlock, events, tsNow] = await Promise.all([
+        api.rpc.chain.getBlock(hash),
+        api.query.system.events.at(hash),
+        api.query.timestamp.now.at(hash)
+      ]);
 
-  for (let blockNumber = startBlock; blockNumber <= endBlock; blockNumber++) {
-    const hash = await api.rpc.chain.getBlockHash(blockNumber);
-    const [signedBlock, events, timestampNow] = await Promise.all([
-      api.rpc.chain.getBlock(hash),
-      api.query.system.events.at(hash),
-      api.query.timestamp.now.at(hash)
-    ]);
+      const extrinsics = signedBlock.block.extrinsics.map((ext, idx) => {
+        const { method, signer, args, isSigned } = ext;
 
-    const extrinsics = signedBlock.block.extrinsics.map((extrinsic, index) => {
-      const { method, signer, args } = extrinsic;
-      const isSigned = extrinsic.isSigned;
-      const decodedArgs = {};
+        // decode args safely
+        const decoded = {};
+        method.args.forEach((_, i) => {
+          const argName = method.meta.args[i]?.name?.toString() || `arg${i}`;
+          try {
+            decoded[argName] = args[i]?.toHuman?.() ?? args[i]?.toString();
+          } catch {
+            decoded[argName] = args[i]?.toString();
+          }
+        });
 
-      method.args.forEach((arg, i) => {
-        const argName = method.meta.args[i]?.name.toString() || `arg${i}`;
-        decodedArgs[argName] = args[i]?.toHuman?.() ?? args[i]?.toString();
+        // match events to this extrinsic index
+        const relatedEvents = events
+          .filter(({ phase }) => phase.isApplyExtrinsic && phase.asApplyExtrinsic.eq(idx))
+          .map(({ event }) => ({
+            section: event.section,
+            method : event.method,
+            args   : (() => { try { return event.data.toHuman(); } catch { return event.data.toString(); } })()
+          }));
+
+        return {
+          index   : idx,
+          section : method.section,
+          method  : method.method,
+          args    : decoded,
+          signer  : isSigned ? signer.toString() : null,
+          success : relatedEvents.some(e => e.method === 'ExtrinsicSuccess'),
+          events  : relatedEvents
+        };
       });
 
-      // Find associated events
-      const associatedEvents = events
-        .filter(({ phase }) => phase.isApplyExtrinsic && phase.asApplyExtrinsic.eq(index))
-        .map(({ event }) => ({
-          section: event.section,
-          method: event.method,
-          args: event.data.toHuman()
-        }));
+      results.push({
+        blockNumber: bn,
+        timestamp  : new Date(tsNow.toNumber()).toISOString(),
+        extrinsics
+      });
+    }
 
-      return {
-        index,
-        section: method.section,
-        method: method.method,
-        args: decodedArgs,
-        signer: isSigned ? signer.toString() : null,
-        success: associatedEvents.some(e => e.method === 'ExtrinsicSuccess'),
-        events: associatedEvents
-      };
-    });
-
-    results.push({
-      blockNumber,
-      timestamp: new Date(timestampNow.toNumber()).toISOString(),
-      extrinsics
-    });
+    await api.disconnect();
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/json');
+    res.write(JSON.stringify(results, safeJson));
+    res.end();
+  } catch (err) {
+    // make sure we always respond
+    console.error('Serverless error:', err);
+    try { await api?.disconnect(); } catch {}
+    res.status(500).json({ error: err.message || 'Internal error' });
   }
-
-  await api.disconnect();
-  res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json(results);
 }
