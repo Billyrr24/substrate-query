@@ -1,11 +1,10 @@
 export const typesBundle = {
   "spec": {
     "vitreus-power-plant": {
+      "alias": {},
       "rpc": {},
-      "types": {},
-      "typesAlias": {},
       "instances": {},
-      "versions": [
+      "types": [
         {
           "minmax": [
             0,
