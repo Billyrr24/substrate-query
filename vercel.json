@@ -1,21 +1,25 @@
 {
   "version": 2,
-  "functions": {
-    "api/extrinsicsRange.js": {
-      "memory": 1024,
-      "maxDuration": 29
-    }
-  },
   "builds": [
     { "src": "api/vippMembers.js",      "use": "@vercel/node" },
     { "src": "api/DynamicVNRG.js",      "use": "@vercel/node" },
     { "src": "api/DynamicVNRG2.js",     "use": "@vercel/node" },
-    { "src": "api/extrinsicsRange.js",  "use": "@vercel/node" },
+
+    {
+      "src": "api/extrinsicsRange.js",
+      "use": "@vercel/node",
+      "config": {
+        "memory": 1024,      /* MiB */
+        "maxDuration": 30    /* seconds – Hobby plan max */
+      }
+    },
+
     { "src": "api/vesting.js",          "use": "@vercel/node" },
     { "src": "api/vestingCurrent.js",   "use": "@vercel/node" },
     { "src": "api/vipMembers.js",       "use": "@vercel/node" },
     { "src": "api/QuerySolostake.js",   "use": "@vercel/node" }
   ],
+
   "routes": [
     { "src": "/api/vippMembers",     "dest": "/api/vippMembers.js" },
     { "src": "/api/DynamicVNRG",     "dest": "/api/DynamicVNRG.js" },
