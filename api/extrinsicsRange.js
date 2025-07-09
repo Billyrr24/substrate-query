@@ -1,44 +1,39 @@
-// /api/extrinsicsRange.js  –  Vercel serverless function
+// /api/extrinsicsRange.js  –  Vercel serverless function with custom extension
 import { ApiPromise, WsProvider } from '@polkadot/api';
-import { typesBundle }           from '../types-bundle/index.js';   // <- bundle in repo root
-import util                       from 'util';
+import { typesBundle }           from '../types-bundle/index.js';
+import util                      from 'util';
 
-// ---------- helpers ----------
+// ---------- BigInt‑safe JSON ----------
 const safeJson = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
-const dbg      = (label, obj) =>
+const dbg = (label, obj) =>
   console.log(label, util.inspect(obj, { depth: 5, colors: false }));
 
-export default async function handler(req, res) {
-  let api;        // so we can disconnect in catch
-  let tmpApi;     // used only for specName check
+// ---------- describe the custom signed extension ----------
+const userExtensions = {
+  CheckEnergyFee: {
+    // extra field appended to the SCALE‑encoded Extrinsic struct
+    extrinsic: { energyFee: 'Compact<Balance>' },
+    // same field encoded in the SIGNED PAYLOAD
+    payload:   { energyFee: 'Compact<Balance>' }
+  }
+};
 
+export default async function handler(req, res) {
+  let api;
   try {
-    // ----- validate query params -----
+    // 1) validate query
     const { start, end } = req.query;
     const s = Number(start), e = Number(end);
     if (!Number.isInteger(s) || !Number.isInteger(e) || s > e) {
       return res.status(400).json({ error: 'Invalid ?start or ?end' });
     }
 
-    // ----- diagnostics: bundle keys & runtime specName -----
-    dbg('Bundle keys', Object.keys(typesBundle.spec));
-
-    tmpApi = await ApiPromise.create({
-      provider: new WsProvider('wss://rpc-mainnet.vtrs.io:443')
-    });
-    const runtimeSpec = tmpApi.runtimeVersion.specName.toString();
-    dbg('Runtime specName', runtimeSpec);
-    await tmpApi.disconnect();
-    dbg('Spec entry has versions type', {
-  type   : typeof typesBundle.spec[runtimeSpec].versions,
-  isArray: Array.isArray(typesBundle.spec[runtimeSpec].versions)
-});
-
-
-    // ----- connect with custom bundle -----
+    // 2) connect with bundle + custom extension
+    dbg('Connecting with userExtensions', Object.keys(userExtensions));
     api = await ApiPromise.create({
       provider: new WsProvider('wss://rpc-mainnet.vtrs.io:443'),
-      typesBundle,                 // <- pass entire bundle object
+      typesBundle,
+      userExtensions,          // 👈 makes CheckEnergyFee decodable
       throwOnUnknown: false
     });
 
@@ -55,15 +50,12 @@ export default async function handler(req, res) {
       const extrinsics = signedBlock.block.extrinsics.map((ext, idx) => {
         const { method, signer, args, isSigned } = ext;
 
-        // decode arguments
+        // decode args safely
         const decodedArgs = {};
         method.args.forEach((_, i) => {
           const key = method.meta.args[i]?.name?.toString() || `arg${i}`;
-          try {
-            decodedArgs[key] = args[i]?.toHuman?.() ?? args[i]?.toString();
-          } catch {
-            decodedArgs[key] = args[i]?.toString();
-          }
+          try { decodedArgs[key] = args[i]?.toHuman?.() ?? args[i]?.toString(); }
+          catch { decodedArgs[key] = args[i]?.toString(); }
         });
 
         // match events
@@ -76,19 +68,19 @@ export default async function handler(req, res) {
           });
 
         return {
-          index   : idx,
-          section : method.section,
-          method  : method.method,
-          args    : decodedArgs,
-          signer  : isSigned ? signer.toString() : null,
-          success : relEvents.some(ev => ev.method === 'ExtrinsicSuccess'),
-          events  : relEvents
+          index:   idx,
+          section: method.section,
+          method:  method.method,
+          args:    decodedArgs,
+          signer:  isSigned ? signer.toString() : null,
+          success: relEvents.some(ev => ev.method === 'ExtrinsicSuccess'),
+          events:  relEvents
         };
       });
 
       results.push({
         blockNumber: bn,
-        timestamp  : new Date(ts.toNumber()).toISOString(),
+        timestamp:   new Date(ts.toNumber()).toISOString(),
         extrinsics
       });
     }
@@ -100,7 +92,6 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('Serverless error:', err);
     try { await api?.disconnect(); } catch {}
-    try { await tmpApi?.disconnect(); } catch {}
     res.status(500).json({ error: err.message || 'Internal error' });
   }
 }
