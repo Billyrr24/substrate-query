@@ -8,17 +8,6 @@ const safeJson = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
 const dbg = (label, obj) =>
   console.log(label, util.inspect(obj, { depth: 5, colors: false }));
 
-// ---------- built‑in signed extensions (typical for Substrate) ----------
-const builtIn = [
-  'CheckVersion',
-  'CheckGenesis',
-  'CheckMortality',
-  'CheckNonce',
-  'CheckWeight',
-  'ChargeTransactionPayment'
-  // add others if your chain advertises them
-];
-
 // ---------- describe the custom signed extension ----------
 const userExtensions = {
   CheckEnergyFee: {
@@ -26,9 +15,6 @@ const userExtensions = {
     payload:   { energyFee: 'Compact<Balance>' }
   }
 };
-
-// merge built‑ins with our custom one
-const signedExtensions = [...builtIn, 'CheckEnergyFee'];
 
 export default async function handler(req, res) {
   let api;
@@ -40,16 +26,26 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid ?start or ?end' });
     }
 
-    // 2) connect with bundle + custom extension
-    dbg('Using signedExtensions', signedExtensions);
-
+    // 2) create API (no signedExtensions override yet)
     api = await ApiPromise.create({
       provider: new WsProvider('wss://rpc-mainnet.vtrs.io:443'),
       typesBundle,
-      userExtensions,
-      signedExtensions,
       throwOnUnknown: false
     });
+
+    // 3) patch registry with CheckEnergyFee
+    const reg = api.registry;
+
+    // Register the field layout
+    reg.register(userExtensions);
+
+    // Append to the active extension list if missing
+    const active = reg.signedExtensions;
+    if (!active.includes('CheckEnergyFee')) {
+      const newList = [...active, 'CheckEnergyFee'];
+      dbg('Patched signedExtensions', newList);
+      reg.setSignedExtensions(newList);
+    }
 
     const results = [];
 
