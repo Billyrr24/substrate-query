@@ -9,8 +9,8 @@
       "src": "api/extrinsicsRange.js",
       "use": "@vercel/node",
       "config": {
-        "memory": 1024,      /* MiB */
-        "maxDuration": 30    /* seconds – Hobby plan max */
+        "memory": 1024, 
+        "maxDuration": 30
       }
     },
 
