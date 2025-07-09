@@ -48,7 +48,7 @@
       "dest": "/api/DynamicVNRG2.js"
     },
     {
-      "src": "/api/extrinsicsRange"
+      "src": "/api/extrinsicsRange",
       "dest": "/api/extrinsicsRange.js"
     },
     {
