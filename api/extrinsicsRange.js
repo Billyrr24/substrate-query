@@ -29,6 +29,11 @@ export default async function handler(req, res) {
     const runtimeSpec = tmpApi.runtimeVersion.specName.toString();
     dbg('Runtime specName', runtimeSpec);
     await tmpApi.disconnect();
+    dbg('Spec entry has versions type', {
+  type   : typeof typesBundle.spec[runtimeSpec].versions,
+  isArray: Array.isArray(typesBundle.spec[runtimeSpec].versions)
+});
+
 
     // ----- connect with custom bundle -----
     api = await ApiPromise.create({
