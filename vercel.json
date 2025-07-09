@@ -1,75 +1,33 @@
 {
   "version": 2,
+
+  "functions": {
+    "api/extrinsicsRange.js": {
+      "memory": 1024,      // MiB   (default is 128)
+      "maxDuration": 30    // sec   (default is 10 on Hobby)
+    }
+  },
+
   "builds": [
-    {
-      "src": "api/vippMembers.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/DynamicVNRG.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/DynamicVNRG2.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/extrinsicsRange.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/vesting.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/vestingCurrent.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/vipMembers.js",  
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/QuerySolostake.js",
-      "use": "@vercel/node"
-    }
+    { "src": "api/vippMembers.js",      "use": "@vercel/node" },
+    { "src": "api/DynamicVNRG.js",      "use": "@vercel/node" },
+    { "src": "api/DynamicVNRG2.js",     "use": "@vercel/node" },
+    { "src": "api/extrinsicsRange.js",  "use": "@vercel/node" },
+    { "src": "api/vesting.js",          "use": "@vercel/node" },
+    { "src": "api/vestingCurrent.js",   "use": "@vercel/node" },
+    { "src": "api/vipMembers.js",       "use": "@vercel/node" },
+    { "src": "api/QuerySolostake.js",   "use": "@vercel/node" }
   ],
+
   "routes": [
-    {
-      "src": "/api/vippMembers",  
-      "dest": "/api/vippMembers.js"
-    },
-    {
-      "src": "/api/DynamicVNRG",
-      "dest": "/api/DynamicVNRG.js"
-    },
-    {
-      "src": "/api/DynamicVNRG2",
-      "dest": "/api/DynamicVNRG2.js"
-    },
-    {
-      "src": "/api/extrinsicsRange",
-      "dest": "/api/extrinsicsRange.js"
-    },
-    {
-      "src": "/api/vipMembers",   
-      "dest": "/api/vipMembers.js"
-    },
-    {
-      "src": "/api/vesting",
-      "dest": "/api/vesting.js"
-    },
-    {
-      "src": "/api/vestingCurrent",
-      "dest": "/api/vestingCurrent.js"
-    },
-    {
-      "src": "/api/QuerySolostake",
-      "dest": "/api/QuerySolostake.js"
-    },
-    {
-      "src": "/api/.*",           
-      "dest": "/api/index.js"
-    }
+    { "src": "/api/vippMembers",     "dest": "/api/vippMembers.js" },
+    { "src": "/api/DynamicVNRG",     "dest": "/api/DynamicVNRG.js" },
+    { "src": "/api/DynamicVNRG2",    "dest": "/api/DynamicVNRG2.js" },
+    { "src": "/api/extrinsicsRange", "dest": "/api/extrinsicsRange.js" },
+    { "src": "/api/vipMembers",      "dest": "/api/vipMembers.js" },
+    { "src": "/api/vesting",         "dest": "/api/vesting.js" },
+    { "src": "/api/vestingCurrent",  "dest": "/api/vestingCurrent.js" },
+    { "src": "/api/QuerySolostake",  "dest": "/api/QuerySolostake.js" },
+    { "src": "/api/.*",              "dest": "/api/index.js" }
   ]
 }
