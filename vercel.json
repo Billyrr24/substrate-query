@@ -14,6 +14,10 @@
       "use": "@vercel/node"
     },
     {
+      "src": "api/extrinsicsRange.js",
+      "use": "@vercel/node"
+    },
+    {
       "src": "api/vesting.js",
       "use": "@vercel/node"
     },
@@ -42,6 +46,10 @@
     {
       "src": "/api/DynamicVNRG2",
       "dest": "/api/DynamicVNRG2.js"
+    },
+    {
+      "src": "/api/extrinsicsRange"
+      "dest": "/api/extrinsicsRange.js"
     },
     {
       "src": "/api/vipMembers",   
