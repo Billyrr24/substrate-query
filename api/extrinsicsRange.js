@@ -1,9 +1,10 @@
-// /api/extrinsicsRange.js  –  Vercel serverless function with custom extension
+// /api/extrinsicsRange.js  –  Vercel serverless function
 import { ApiPromise, WsProvider } from '@polkadot/api';
-import { typesBundle }           from '../types-bundle/index.js';
-import util                      from 'util';
+import { defaultExtensions }      from '@polkadot/types-known';
+import { typesBundle }            from '../types-bundle/index.js';
+import util                       from 'util';
 
-// ---------- BigInt‑safe JSON ----------
+// ---------- helpers ----------
 const safeJson = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
 const dbg = (label, obj) =>
   console.log(label, util.inspect(obj, { depth: 5, colors: false }));
@@ -11,9 +12,7 @@ const dbg = (label, obj) =>
 // ---------- describe the custom signed extension ----------
 const userExtensions = {
   CheckEnergyFee: {
-    // extra field appended to the SCALE‑encoded Extrinsic struct
     extrinsic: { energyFee: 'Compact<Balance>' },
-    // same field encoded in the SIGNED PAYLOAD
     payload:   { energyFee: 'Compact<Balance>' }
   }
 };
@@ -21,7 +20,7 @@ const userExtensions = {
 export default async function handler(req, res) {
   let api;
   try {
-    // 1) validate query
+    // 1) validate ?start & ?end
     const { start, end } = req.query;
     const s = Number(start), e = Number(end);
     if (!Number.isInteger(s) || !Number.isInteger(e) || s > e) {
@@ -29,11 +28,13 @@ export default async function handler(req, res) {
     }
 
     // 2) connect with bundle + custom extension
-    dbg('Connecting with userExtensions', Object.keys(userExtensions));
+    dbg('Connecting with signedExtensions', [...defaultExtensions, 'CheckEnergyFee']);
+
     api = await ApiPromise.create({
       provider: new WsProvider('wss://rpc-mainnet.vtrs.io:443'),
       typesBundle,
-      userExtensions,          // 👈 makes CheckEnergyFee decodable
+      userExtensions,
+      signedExtensions: [...defaultExtensions, 'CheckEnergyFee'],
       throwOnUnknown: false
     });
 
@@ -50,7 +51,7 @@ export default async function handler(req, res) {
       const extrinsics = signedBlock.block.extrinsics.map((ext, idx) => {
         const { method, signer, args, isSigned } = ext;
 
-        // decode args safely
+        // decode arguments
         const decodedArgs = {};
         method.args.forEach((_, i) => {
           const key = method.meta.args[i]?.name?.toString() || `arg${i}`;
