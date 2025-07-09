@@ -1,6 +1,6 @@
 // /api/extrinsicsRange.js  –  Vercel serverless function
 import { ApiPromise, WsProvider } from '@polkadot/api';
-import { defaultExtensions }      from '@polkadot/types-known';
+import * as known                 from '@polkadot/types-known';     // ← changed
 import { typesBundle }            from '../types-bundle/index.js';
 import util                       from 'util';
 
@@ -8,6 +8,11 @@ import util                       from 'util';
 const safeJson = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
 const dbg = (label, obj) =>
   console.log(label, util.inspect(obj, { depth: 5, colors: false }));
+
+// ---------- normalize built‑in extensions (array vs object) ----------
+const builtIn = Array.isArray(known.defaultExtensions)
+  ? known.defaultExtensions
+  : Object.keys(known.defaultExtensions);
 
 // ---------- describe the custom signed extension ----------
 const userExtensions = {
@@ -28,13 +33,13 @@ export default async function handler(req, res) {
     }
 
     // 2) connect with bundle + custom extension
-    dbg('Connecting with signedExtensions', [...defaultExtensions, 'CheckEnergyFee']);
+    dbg('Using signedExtensions', [...builtIn, 'CheckEnergyFee']);
 
     api = await ApiPromise.create({
       provider: new WsProvider('wss://rpc-mainnet.vtrs.io:443'),
       typesBundle,
       userExtensions,
-      signedExtensions: [...defaultExtensions, 'CheckEnergyFee'],
+      signedExtensions: [...builtIn, 'CheckEnergyFee'],   // ← changed
       throwOnUnknown: false
     });
 
