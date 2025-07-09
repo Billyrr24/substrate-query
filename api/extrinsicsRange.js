@@ -1,5 +1,7 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { decodeAddress } from '@polkadot/util-crypto';
+import { typesBundle } from '../types-bundle/index.js';  // not from api/
+
 
 export default async function handler(req, res) {
   const { start, end } = req.query;
