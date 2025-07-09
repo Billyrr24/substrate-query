@@ -3,8 +3,8 @@
 
   "functions": {
     "api/extrinsicsRange.js": {
-      "memory": 1024,      // MiB   (default is 128)
-      "maxDuration": 30    // sec   (default is 10 on Hobby)
+      "memory": 1024, 
+      "maxDuration": 30
     }
   },
 
