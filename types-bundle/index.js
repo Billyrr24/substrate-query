@@ -1,10 +1,19 @@
 export const typesBundle = {
   "spec": {
     "vitreus-power-plant": {
-      "alias": {},
-      "types": {},
       "rpc": {},
+      "types": {},
+      "alias": {},
       "instances": {},
+      "versions": [
+        {
+          "minmax": [
+            0,
+            null
+          ],
+          "types": {}
+        }
+      ],
       "signedExtensions": {
         "CheckNonZeroSender": {},
         "CheckSpecVersion": {},
@@ -15,8 +24,7 @@ export const typesBundle = {
         "CheckWeight": {},
         "ChargeTransactionPayment": {},
         "CheckEnergyFee": {}
-      },
-      "version": 213
+      }
     }
   }
 };
