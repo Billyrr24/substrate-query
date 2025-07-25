@@ -1,12 +1,10 @@
-// File: /api/validatorActivity.js (for Vercel serverless function)
+// File: /api/validatorActivity.js
 
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { stringToU8a } from '@polkadot/util';
 
 const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
-const HOURS_BACK = 1;
-const BLOCK_TIME_MS = 6_000;
 const BATCH_SIZE = 30;
 
 export default async function handler(req, res) {
@@ -16,11 +14,16 @@ export default async function handler(req, res) {
     const api = await ApiPromise.create({ provider });
     await api.isReady;
 
-    const validators = (await api.query.session.validators()).map((v) => v.toString().toLowerCase());
+    const { startBlock } = req.query;
 
-    const currentBlock = (await api.rpc.chain.getHeader()).number.toNumber();
-    const blocksBack = Math.floor((HOURS_BACK * 3600 * 1000) / BLOCK_TIME_MS);
-    const startBlock = currentBlock - blocksBack;
+    if (!startBlock || isNaN(parseInt(startBlock))) {
+      return res.status(400).json({ error: 'Missing or invalid `startBlock` parameter' });
+    }
+
+    const start = parseInt(startBlock);
+    const end = (await api.rpc.chain.getHeader()).number.toNumber();
+
+    const validators = (await api.query.session.validators()).map((v) => v.toString().toLowerCase());
 
     const validatorData = {};
     for (const val of validators) {
@@ -33,8 +36,10 @@ export default async function handler(req, res) {
     const authorityToValidator = {};
     const queriedKeyOwners = new Set();
 
-    for (let i = startBlock; i < currentBlock; i += BATCH_SIZE) {
-      const batch = [...Array(BATCH_SIZE).keys()].map((j) => i + j).filter((b) => b <= currentBlock);
+    for (let i = start; i <= end; i += BATCH_SIZE) {
+      const batch = [...Array(BATCH_SIZE).keys()]
+        .map((j) => i + j)
+        .filter((b) => b <= end);
 
       await Promise.all(
         batch.map(async (blockNumber) => {
@@ -86,10 +91,9 @@ export default async function handler(req, res) {
 
     await api.disconnect();
 
-    // ✅ Return JSON formatted validator data
     res.status(200).json({
-      fromBlock: startBlock,
-      toBlock: currentBlock,
+      fromBlock: start,
+      toBlock: end,
       scannedAt: Math.floor(Date.now() / 1000),
       validators: validatorData,
     });
