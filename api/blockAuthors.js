@@ -4,28 +4,25 @@ import { stringToU8a } from '@polkadot/util';
 
 const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
 const BATCH_SIZE = 30;
-const BLOCK_TIME_MS = 6000;
 
 export default async function handler(req, res) {
   try {
-    // ✅ Use req.query to access query parameters (required in Vercel)
-    const { startBlock } = req.query;
+    const startBlockParam =
+      req.query?.startBlock ||
+      (req.url.includes('?') ? new URLSearchParams(req.url.split('?')[1]).get('startBlock') : null);
 
-    if (!startBlock || isNaN(parseInt(startBlock))) {
+    const startBlock = parseInt(startBlockParam, 10);
+
+    if (isNaN(startBlock) || startBlock <= 0) {
       return res.status(400).json({ error: 'Missing or invalid `startBlock` parameter' });
     }
-
-    const startBlockNumber = parseInt(startBlock);
 
     await cryptoWaitReady();
     const provider = new WsProvider(WS_ENDPOINT);
     const api = await ApiPromise.create({ provider });
     await api.isReady;
 
-    const validators = (await api.query.session.validators()).map((v) =>
-      v.toString().toLowerCase()
-    );
-
+    const validators = (await api.query.session.validators()).map((v) => v.toString().toLowerCase());
     const currentBlock = (await api.rpc.chain.getHeader()).number.toNumber();
 
     const validatorData = {};
@@ -39,8 +36,10 @@ export default async function handler(req, res) {
     const authorityToValidator = {};
     const queriedKeyOwners = new Set();
 
-    for (let i = startBlockNumber; i < currentBlock; i += BATCH_SIZE) {
-      const batch = [...Array(BATCH_SIZE).keys()].map((j) => i + j).filter((b) => b <= currentBlock);
+    for (let i = startBlock; i < currentBlock; i += BATCH_SIZE) {
+      const batch = [...Array(BATCH_SIZE).keys()]
+        .map((j) => i + j)
+        .filter((b) => b <= currentBlock);
 
       await Promise.all(
         batch.map(async (blockNumber) => {
@@ -93,12 +92,13 @@ export default async function handler(req, res) {
     await api.disconnect();
 
     res.status(200).json({
-      fromBlock: startBlockNumber,
+      fromBlock: startBlock,
       toBlock: currentBlock,
       scannedAt: Math.floor(Date.now() / 1000),
       validators: validatorData,
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message || 'Unknown error occurred' });
   }
 }
