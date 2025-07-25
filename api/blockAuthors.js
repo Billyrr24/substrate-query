@@ -1,3 +1,5 @@
+// File: /api/validatorActivity.js (for Vercel serverless function)
+
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { stringToU8a } from '@polkadot/util';
@@ -7,17 +9,10 @@ const BATCH_SIZE = 30;
 
 export default async function handler(req, res) {
   try {
-    // ⛳ Explicitly parse the startBlock from the URL
-    let startBlock;
-    try {
-      const url = new URL(req.url, `http://${req.headers.host}`);
-      const startBlockParam = url.searchParams.get('startBlock');
-      startBlock = parseInt(startBlockParam, 10);
-    } catch {
-      return res.status(400).json({ error: 'Invalid URL structure' });
-    }
-
-    if (!startBlock || isNaN(startBlock) || startBlock <= 0) {
+    // Get startBlock from query params, validate
+    const startBlockParam = req.query.startBlock;
+    const startBlock = parseInt(startBlockParam, 10);
+    if (!startBlock || isNaN(startBlock) || startBlock < 0) {
       return res.status(400).json({ error: 'Missing or invalid `startBlock` parameter' });
     }
 
@@ -27,6 +22,7 @@ export default async function handler(req, res) {
     await api.isReady;
 
     const validators = (await api.query.session.validators()).map((v) => v.toString().toLowerCase());
+
     const currentBlock = (await api.rpc.chain.getHeader()).number.toNumber();
 
     const validatorData = {};
@@ -95,14 +91,21 @@ export default async function handler(req, res) {
 
     await api.disconnect();
 
-    return res.status(200).json({
+    // Filter out validators with no activity
+    const filteredValidatorData = {};
+    for (const [validator, data] of Object.entries(validatorData)) {
+      if (data.authored.length > 0 || data.heartbeats.length > 0) {
+        filteredValidatorData[validator] = data;
+      }
+    }
+
+    res.status(200).json({
       fromBlock: startBlock,
       toBlock: currentBlock,
       scannedAt: Math.floor(Date.now() / 1000),
-      validators: validatorData,
+      validators: filteredValidatorData,
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: err.message || 'Unknown server error' });
+    res.status(500).json({ error: err.message || 'Unknown error occurred' });
   }
 }
