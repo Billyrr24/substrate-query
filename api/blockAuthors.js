@@ -1,4 +1,4 @@
-// File: /api/validatorActivity.js (for Vercel serverless function)
+// File: /api/validatorActivity.js
 
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
@@ -9,12 +9,15 @@ const BATCH_SIZE = 30;
 
 export default async function handler(req, res) {
   try {
-    // Get startBlock from query params, validate
+    // Get and validate startBlock
     const startBlockParam = req.query.startBlock;
-    const startBlock = parseInt(startBlockParam, 10);
+    let startBlock = parseInt(startBlockParam, 10);
     if (!startBlock || isNaN(startBlock) || startBlock < 0) {
       return res.status(400).json({ error: 'Missing or invalid `startBlock` parameter' });
     }
+
+    // Skip the starting block to avoid duplicate data
+    startBlock = startBlock + 1;
 
     await cryptoWaitReady();
     const provider = new WsProvider(WS_ENDPOINT);
