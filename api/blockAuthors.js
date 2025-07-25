@@ -5,7 +5,7 @@ import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { stringToU8a } from '@polkadot/util';
 
 const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
-const HOURS_BACK = 1;
+const HOURS_BACK = .1;
 const BLOCK_TIME_MS = 6_000;
 const BATCH_SIZE = 30;
 
