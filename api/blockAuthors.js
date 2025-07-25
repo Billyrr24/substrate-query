@@ -9,21 +9,23 @@ const BATCH_SIZE = 30;
 
 export default async function handler(req, res) {
   try {
+    // Safely extract `startBlock` from query
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const startBlockParam = url.searchParams.get('startBlock');
+
+    if (!startBlockParam || isNaN(parseInt(startBlockParam))) {
+      return res.status(400).json({ error: 'Missing or invalid `startBlock` parameter' });
+    }
+
+    const startBlock = parseInt(startBlockParam);
+
     await cryptoWaitReady();
     const provider = new WsProvider(WS_ENDPOINT);
     const api = await ApiPromise.create({ provider });
     await api.isReady;
 
-    const { startBlock } = req.query;
-
-    if (!startBlock || isNaN(parseInt(startBlock))) {
-      return res.status(400).json({ error: 'Missing or invalid `startBlock` parameter' });
-    }
-
-    const start = parseInt(startBlock);
-    const end = (await api.rpc.chain.getHeader()).number.toNumber();
-
     const validators = (await api.query.session.validators()).map((v) => v.toString().toLowerCase());
+    const currentBlock = (await api.rpc.chain.getHeader()).number.toNumber();
 
     const validatorData = {};
     for (const val of validators) {
@@ -36,10 +38,8 @@ export default async function handler(req, res) {
     const authorityToValidator = {};
     const queriedKeyOwners = new Set();
 
-    for (let i = start; i <= end; i += BATCH_SIZE) {
-      const batch = [...Array(BATCH_SIZE).keys()]
-        .map((j) => i + j)
-        .filter((b) => b <= end);
+    for (let i = startBlock; i < currentBlock; i += BATCH_SIZE) {
+      const batch = [...Array(BATCH_SIZE).keys()].map((j) => i + j).filter((b) => b <= currentBlock);
 
       await Promise.all(
         batch.map(async (blockNumber) => {
@@ -91,11 +91,32 @@ export default async function handler(req, res) {
 
     await api.disconnect();
 
+    // Flatten validator data into a simple array for easier consumption
+    const flatResults = [];
+    for (const [validator, data] of Object.entries(validatorData)) {
+      data.authored.forEach((entry) => {
+        flatResults.push({
+          validator,
+          type: 'authored',
+          block: entry.block,
+          time: entry.time,
+        });
+      });
+      data.heartbeats.forEach((entry) => {
+        flatResults.push({
+          validator,
+          type: 'heartbeat',
+          block: entry.block,
+          time: entry.time,
+        });
+      });
+    }
+
     res.status(200).json({
-      fromBlock: start,
-      toBlock: end,
+      fromBlock: startBlock,
+      toBlock: currentBlock,
       scannedAt: Math.floor(Date.now() / 1000),
-      validators: validatorData,
+      data: flatResults,
     });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unknown error occurred' });
