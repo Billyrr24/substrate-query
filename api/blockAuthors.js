@@ -7,13 +7,17 @@ const BATCH_SIZE = 30;
 
 export default async function handler(req, res) {
   try {
-    const startBlockParam =
-      req.query?.startBlock ||
-      (req.url.includes('?') ? new URLSearchParams(req.url.split('?')[1]).get('startBlock') : null);
+    // ⛳ Explicitly parse the startBlock from the URL
+    let startBlock;
+    try {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const startBlockParam = url.searchParams.get('startBlock');
+      startBlock = parseInt(startBlockParam, 10);
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL structure' });
+    }
 
-    const startBlock = parseInt(startBlockParam, 10);
-
-    if (isNaN(startBlock) || startBlock <= 0) {
+    if (!startBlock || isNaN(startBlock) || startBlock <= 0) {
       return res.status(400).json({ error: 'Missing or invalid `startBlock` parameter' });
     }
 
@@ -91,7 +95,7 @@ export default async function handler(req, res) {
 
     await api.disconnect();
 
-    res.status(200).json({
+    return res.status(200).json({
       fromBlock: startBlock,
       toBlock: currentBlock,
       scannedAt: Math.floor(Date.now() / 1000),
@@ -99,6 +103,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message || 'Unknown error occurred' });
+    return res.status(500).json({ error: err.message || 'Unknown server error' });
   }
 }
