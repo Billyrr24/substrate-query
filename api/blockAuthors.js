@@ -65,7 +65,7 @@ export default async function handler(req, res) {
             const hash = await api.rpc.chain.getBlockHash(blockNumber);
 
             // multi-query: header, timestamp, events
-            const [header, [timestamp, events]] = await Promise.all([
+            const [header, timestampAndEvents] = await Promise.all([
               api.derive.chain.getHeader(hash),
               api.queryMulti.at(hash, [
                 api.query.timestamp.now,
@@ -73,6 +73,7 @@ export default async function handler(req, res) {
               ]),
             ]);
 
+            const [timestamp, events] = timestampAndEvents;
             const ts = Math.floor(timestamp.toNumber() / 1000);
 
             // record authored block
