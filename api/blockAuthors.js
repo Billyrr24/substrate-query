@@ -64,16 +64,22 @@ export default async function handler(req, res) {
           try {
             const hash = await api.rpc.chain.getBlockHash(blockNumber);
 
-            // multi-query: header, timestamp, events
-            const [header, timestampAndEvents] = await Promise.all([
-              api.derive.chain.getHeader(hash),
-              api.queryMulti.at(hash, [
+            // fetch header
+            const header = await api.derive.chain.getHeader(hash);
+
+            // fetch timestamp + events in one call
+            let timestamp, events;
+            try {
+              [timestamp, events] = await api.queryMulti.at(hash, [
                 api.query.timestamp.now,
                 api.query.system.events,
-              ]),
-            ]);
+              ]);
+            } catch (err) {
+              // fallback if queryMulti fails
+              timestamp = { toNumber: () => 0 };
+              events = [];
+            }
 
-            const [timestamp, events] = timestampAndEvents;
             const ts = Math.floor(timestamp.toNumber() / 1000);
 
             // record authored block
@@ -82,7 +88,7 @@ export default async function handler(req, res) {
               validatorData[author].authored.push({ block: blockNumber, time: ts });
             }
 
-            // scan events only once
+            // scan events
             for (const { event } of events) {
               if (event.section === 'imOnline' && event.method === 'HeartbeatReceived') {
                 const authorityHex = event.data[0].toHex().toLowerCase();
