@@ -5,7 +5,7 @@ import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { stringToU8a } from '@polkadot/util';
 
 const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
-const BATCH_SIZE = 30;
+const BATCH_SIZE = 200; // increase for better throughput
 
 export default async function handler(req, res) {
   try {
@@ -24,21 +24,36 @@ export default async function handler(req, res) {
     const api = await ApiPromise.create({ provider });
     await api.isReady;
 
+    // Fetch current validator set
     const validators = (await api.query.session.validators()).map((v) => v.toString().toLowerCase());
 
+    // Fetch current block height
     const currentBlock = (await api.rpc.chain.getHeader()).number.toNumber();
 
+    // Prepare validator activity store
     const validatorData = {};
     for (const val of validators) {
-      validatorData[val] = {
-        authored: [],
-        heartbeats: [],
-      };
+      validatorData[val] = { authored: [], heartbeats: [] };
     }
 
-    const authorityToValidator = {};
-    const queriedKeyOwners = new Set();
+    // ---- Precompute authority -> validator mapping ----
+    const imonKeys = await api.query.imOnline.keys();
+    const keyOwnerEntries = await Promise.all(
+      imonKeys.map(async ({ args: [authorityId] }) => {
+        const keyTypeId = stringToU8a('imon');
+        const owner = await api.query.session.keyOwner([keyTypeId, authorityId]);
+        if (owner.isSome) {
+          return [authorityId.toHex().toLowerCase(), owner.unwrap().toString().toLowerCase()];
+        }
+        return null;
+      })
+    );
+    const authorityToValidator = Object.fromEntries(
+      keyOwnerEntries.filter((x) => x !== null)
+    );
+    // -----------------------------------------------
 
+    // ---- Block scanning loop ----
     for (let i = startBlock; i < currentBlock; i += BATCH_SIZE) {
       const batch = [...Array(BATCH_SIZE).keys()]
         .map((j) => i + j)
@@ -48,46 +63,37 @@ export default async function handler(req, res) {
         batch.map(async (blockNumber) => {
           try {
             const hash = await api.rpc.chain.getBlockHash(blockNumber);
-            const extHeader = await api.derive.chain.getHeader(hash);
-            const timestampMs = (await api.query.timestamp.now.at(hash)).toNumber();
 
-            const author = extHeader.author?.toString()?.toLowerCase();
+            // multi-query: header, timestamp, events
+            const [header, [timestamp, events]] = await Promise.all([
+              api.derive.chain.getHeader(hash),
+              api.queryMulti.at(hash, [
+                api.query.timestamp.now,
+                api.query.system.events,
+              ]),
+            ]);
+
+            const ts = Math.floor(timestamp.toNumber() / 1000);
+
+            // record authored block
+            const author = header.author?.toString()?.toLowerCase();
             if (author && validatorData[author]) {
-              validatorData[author].authored.push({
-                block: blockNumber,
-                time: Math.floor(timestampMs / 1000),
-              });
+              validatorData[author].authored.push({ block: blockNumber, time: ts });
             }
 
-            const events = await api.query.system.events.at(hash);
+            // scan events only once
             for (const { event } of events) {
               if (event.section === 'imOnline' && event.method === 'HeartbeatReceived') {
-                const authorityId = event.data[0];
-                const authorityHex = authorityId.toHex().toLowerCase();
-
-                if (!authorityToValidator[authorityHex] && !queriedKeyOwners.has(authorityHex)) {
-                  queriedKeyOwners.add(authorityHex);
-                  try {
-                    const keyTypeId = stringToU8a('imon');
-                    const keyOwner = await api.query.session.keyOwner.at(hash, [keyTypeId, authorityId]);
-
-                    if (keyOwner.isSome) {
-                      const validatorId = keyOwner.unwrap().toString().toLowerCase();
-                      authorityToValidator[authorityHex] = validatorId;
-                    }
-                  } catch (_) {}
-                }
-
+                const authorityHex = event.data[0].toHex().toLowerCase();
                 const validator = authorityToValidator[authorityHex];
                 if (validator && validatorData[validator]) {
-                  validatorData[validator].heartbeats.push({
-                    block: blockNumber,
-                    time: Math.floor(timestampMs / 1000),
-                  });
+                  validatorData[validator].heartbeats.push({ block: blockNumber, time: ts });
                 }
               }
             }
-          } catch (_) {}
+          } catch (_) {
+            // ignore errors for individual blocks
+          }
         })
       );
     }
