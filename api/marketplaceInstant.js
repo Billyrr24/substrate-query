@@ -78,17 +78,18 @@ export default async function handler(req, res) {
     // --------------------
     const coopInfos = await api.query.energyGeneration.cooperators.multi(allCooperators);
 
-    // Map cooperator address -> targets
+    // Map cooperator address -> targets (as plain object)
     const coopMap = new Map();
     allCooperators.forEach((address, idx) => {
-      let targets = {};
+      let targetsObj = {};
       try {
         const info = coopInfos[idx];
         if (info.isSome) {
-          targets = info.unwrap().targets;
+          const targets = info.unwrap().targets;
+          targetsObj = targets.toJSON ? targets.toJSON() : targets;
         }
       } catch {}
-      coopMap.set(address, targets);
+      coopMap.set(address, targetsObj);
     });
 
     // --------------------
@@ -110,10 +111,10 @@ export default async function handler(req, res) {
 
       // Cooperators
       const collaborators = collabMap.get(address) || [];
-      let cooperatorStake = collaborators.reduce((sum, coop) => {
-        const targets = coopMap.get(coop) || {};
-        const stakeForValidator = targets[address] || 0;
-        return sum + BigInt(stakeForValidator);
+      const cooperatorStake = collaborators.reduce((sum, coop) => {
+        const targetsObj = coopMap.get(coop) || {};
+        const stakeForValidator = BigInt(targetsObj[address] || 0);
+        return sum + stakeForValidator;
       }, 0n);
       const numCooperators = collaborators.length;
 
