@@ -1,16 +1,6 @@
 // api/marketplaceInstant.js
 import { ApiPromise, WsProvider } from "@polkadot/api";
 
-// Helper to safely convert value to string
-function safeToString(value) {
-  if (value === undefined || value === null) return "0";
-  try {
-    return value.toString();
-  } catch {
-    return "0";
-  }
-}
-
 export default async function handler(req, res) {
   try {
     const provider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
@@ -26,10 +16,14 @@ export default async function handler(req, res) {
     // --------------------
     const ledgerEntries = await api.query.energyGeneration.ledger.entries();
     const ledgerMap = new Map(
-      ledgerEntries.map(([key, value]) => [
-        key.args[0].toString(),
-        safeToString(value?.active),
-      ])
+      ledgerEntries.map(([key, optValue]) => {
+        const address = key.args[0].toString();
+        let active = "0";
+        try {
+          active = optValue.isSome ? optValue.unwrap().active.toString() : "0";
+        } catch {}
+        return [address, active];
+      })
     );
 
     // --------------------
@@ -39,15 +33,10 @@ export default async function handler(req, res) {
     const collabMap = new Map(
       collabEntries.map(([key, optValue]) => {
         const address = key.args[0].toString();
-
-        // Unwrap Option type safely
         let collaborators = [];
         try {
-          collaborators = optValue?.isSome ? optValue.unwrap().map(addr => addr.toString()) : [];
-        } catch {
-          collaborators = [];
-        }
-
+          collaborators = optValue.isSome ? optValue.unwrap().toJSON() : [];
+        } catch {}
         return [address, collaborators];
       })
     );
@@ -57,28 +46,33 @@ export default async function handler(req, res) {
     // --------------------
     const repEntries = await api.query.reputation.accountReputation.entries();
     const repMap = new Map(
-      repEntries.map(([key, value]) => {
+      repEntries.map(([key, optValue]) => {
         const address = key.args[0].toString();
-        const points = safeToString(value?.reputation?.points);
-
+        let points = "0";
         let tier = "Unknown";
         try {
-          const tierObj = value?.reputation?.tier?.toHuman?.() || {};
-          tier = Object.keys(tierObj)[0] || "Unknown";
+          if (optValue.isSome) {
+            const rep = optValue.unwrap();
+            points = rep.reputation.points.toString();
+            const tierObj = rep.reputation.tier.toHuman();
+            tier = Object.keys(tierObj)[0] || "Unknown";
+          }
         } catch {}
         return [address, { points, tier }];
       })
     );
 
     // --------------------
-    // 5. Assemble result per validator
+    // 5. Assemble results
     // --------------------
     const results = validatorEntries.map(([key, value]) => {
       const address = key.args[0].toString();
 
       // Commission (Perbill -> percent)
-      const rawCommission = safeToString(value?.commission);
-      const commission = Number(rawCommission) / 10_000_000;
+      let commission = 0;
+      try {
+        commission = Number(value.commission.toString()) / 10_000_000;
+      } catch {}
 
       // Solo stake
       const soloStake = ledgerMap.get(address) || "0";
@@ -109,8 +103,8 @@ export default async function handler(req, res) {
     });
 
     await api.disconnect();
-
     res.status(200).json(results);
+
   } catch (error) {
     console.error("Error querying data:", error);
     res.status(500).json({ error: error.message });
