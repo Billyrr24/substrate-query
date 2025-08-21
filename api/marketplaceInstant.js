@@ -65,7 +65,34 @@ export default async function handler(req, res) {
     );
 
     // --------------------
-    // 5. Assemble results with parallel cooperator queries
+    // 5. Gather all unique cooperator addresses for multi query
+    // --------------------
+    const allCooperatorsSet = new Set();
+    collabMap.forEach((cooperators) => {
+      cooperators.forEach((c) => allCooperatorsSet.add(c));
+    });
+    const allCooperators = Array.from(allCooperatorsSet);
+
+    // --------------------
+    // 6. Multi query cooperator info
+    // --------------------
+    const coopInfos = await api.query.energyGeneration.cooperators.multi(allCooperators);
+
+    // Map cooperator address -> targets
+    const coopMap = new Map();
+    allCooperators.forEach((address, idx) => {
+      let targets = {};
+      try {
+        const info = coopInfos[idx];
+        if (info.isSome) {
+          targets = info.unwrap().targets;
+        }
+      } catch {}
+      coopMap.set(address, targets);
+    });
+
+    // --------------------
+    // 7. Assemble results
     // --------------------
     const results = [];
 
@@ -83,22 +110,11 @@ export default async function handler(req, res) {
 
       // Cooperators
       const collaborators = collabMap.get(address) || [];
-
-      // Parallel query all cooperator stakes
-      const stakes = await Promise.all(
-        collaborators.map(async (coop) => {
-          try {
-            const coopInfo = await api.query.energyGeneration.cooperators(coop);
-            if (coopInfo.isSome) {
-              const targets = coopInfo.unwrap().targets;
-              return BigInt(targets[address] || 0);
-            }
-          } catch {}
-          return 0n;
-        })
-      );
-
-      const cooperatorStake = stakes.reduce((a, b) => a + b, 0n);
+      let cooperatorStake = collaborators.reduce((sum, coop) => {
+        const targets = coopMap.get(coop) || {};
+        const stakeForValidator = targets[address] || 0;
+        return sum + BigInt(stakeForValidator);
+      }, 0n);
       const numCooperators = collaborators.length;
 
       // Reputation
