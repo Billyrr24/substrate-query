@@ -6,13 +6,16 @@ export default async function handler(req, res) {
     const provider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
     const api = await ApiPromise.create({ provider });
 
-    // Query all validators from energyGeneration.validators
     const entries = await api.query.energyGeneration.validators.entries();
 
-    // Map the results
     const results = entries.map(([key, value]) => {
       const address = key.args[0].toString();
-      const commission = value.commission.toString(); // Assuming commission field exists
+
+      // Raw commission (usually a Perbill = parts per billion)
+      const rawCommission = value.commission.toString();
+
+      // Convert: divide by 10,000,000 to get percent (200000000 → 20)
+      const commission = Number(rawCommission) / 10_000_000;
 
       return { address, commission };
     });
