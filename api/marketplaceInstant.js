@@ -1,18 +1,28 @@
 // api/marketplaceInstant.js
 import { ApiPromise, WsProvider } from "@polkadot/api";
 
+// Helper to safely convert value to string
+function safeToString(value) {
+  if (value === undefined || value === null) return "0";
+  try {
+    return value.toString();
+  } catch {
+    return "0";
+  }
+}
+
 export default async function handler(req, res) {
   try {
     const provider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
     const api = await ApiPromise.create({ provider });
 
     // --------------------
-    // 1. Validators (commission)
+    // 1. Validators
     // --------------------
     const validatorEntries = await api.query.energyGeneration.validators.entries();
 
     // --------------------
-    // 2. Ledger (all active stakes)
+    // 2. Ledger (solo stake)
     // --------------------
     const ledgerEntries = await api.query.energyGeneration.ledger.entries();
     const ledgerMap = new Map(
@@ -42,7 +52,7 @@ export default async function handler(req, res) {
     );
 
     // --------------------
-    // 4. Reputation (points + tier)
+    // 4. Reputation
     // --------------------
     const repEntries = await api.query.reputation.accountReputation.entries();
     const repMap = new Map(
@@ -55,7 +65,9 @@ export default async function handler(req, res) {
             const rep = optValue.unwrap();
             points = rep.reputation.points.toString();
             const tierObj = rep.reputation.tier.toHuman();
-            tier = Object.keys(tierObj)[0] || "Unknown";
+            const tierName = Object.keys(tierObj)[0] || "Unknown";
+            const tierValue = tierObj[tierName] ?? "";
+            tier = `${tierName} ${tierValue}`;
           }
         } catch {}
         return [address, { points, tier }];
@@ -65,7 +77,9 @@ export default async function handler(req, res) {
     // --------------------
     // 5. Assemble results
     // --------------------
-    const results = validatorEntries.map(([key, value]) => {
+    const results = [];
+
+    for (const [key, value] of validatorEntries) {
       const address = key.args[0].toString();
 
       // Commission (Perbill -> percent)
@@ -81,8 +95,14 @@ export default async function handler(req, res) {
       const collaborators = collabMap.get(address) || [];
       let cooperatorStake = 0n;
       for (const coop of collaborators) {
-        const stake = ledgerMap.get(coop);
-        if (stake) cooperatorStake += BigInt(stake);
+        try {
+          const coopInfo = await api.query.energyGeneration.cooperators(coop);
+          if (coopInfo.isSome) {
+            const targets = coopInfo.unwrap().targets;
+            const stakeForValidator = targets[address] || 0;
+            cooperatorStake += BigInt(stakeForValidator);
+          }
+        } catch {}
       }
       const numCooperators = collaborators.length;
 
@@ -91,7 +111,7 @@ export default async function handler(req, res) {
       const reputationPoints = repData.points;
       const tier = repData.tier;
 
-      return {
+      results.push({
         address,
         commission,
         cooperatorStake: cooperatorStake.toString(),
@@ -99,8 +119,8 @@ export default async function handler(req, res) {
         reputationPoints,
         tier,
         soloStake,
-      };
-    });
+      });
+    }
 
     await api.disconnect();
     res.status(200).json(results);
