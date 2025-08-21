@@ -1,6 +1,16 @@
 // api/marketplaceInstant.js
 import { ApiPromise, WsProvider } from "@polkadot/api";
 
+// Helper to safely convert value to string
+function safeToString(value) {
+  if (value === undefined || value === null) return "0";
+  try {
+    return value.toString();
+  } catch {
+    return "0";
+  }
+}
+
 export default async function handler(req, res) {
   try {
     const provider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
@@ -14,7 +24,7 @@ export default async function handler(req, res) {
     const ledgerMap = new Map(
       ledgerEntries.map(([key, value]) => [
         key.args[0].toString(),
-        value.active.toString(),
+        safeToString(value?.active),
       ])
     );
 
@@ -23,7 +33,7 @@ export default async function handler(req, res) {
     const collabMap = new Map(
       collabEntries.map(([key, value]) => [
         key.args[0].toString(),
-        value.map(addr => addr.toString()),
+        (value || []).map(addr => safeToString(addr)),
       ])
     );
 
@@ -32,19 +42,22 @@ export default async function handler(req, res) {
     const repMap = new Map(
       repEntries.map(([key, value]) => {
         const address = key.args[0].toString();
-        const points = value.reputation.points.toString();
-        const tierObj = value.reputation.tier.toHuman();
-        const tier = Object.keys(tierObj)[0]; // extract tier name
+        const points = safeToString(value?.reputation?.points);
+        let tier = "Unknown";
+        try {
+          const tierObj = value?.reputation?.tier?.toHuman?.() || {};
+          tier = Object.keys(tierObj)[0] || "Unknown";
+        } catch {}
         return [address, { points, tier }];
       })
     );
 
-    // 5. Assemble result per validator
+    // 5. Assemble results
     const results = validatorEntries.map(([key, value]) => {
       const address = key.args[0].toString();
 
-      // Commission
-      const rawCommission = value.commission.toString();
+      // Commission (Perbill -> percent)
+      const rawCommission = safeToString(value?.commission);
       const commission = Number(rawCommission) / 10_000_000;
 
       // Solo stake
@@ -79,6 +92,7 @@ export default async function handler(req, res) {
 
     await api.disconnect();
     res.status(200).json(results);
+
   } catch (error) {
     console.error("Error querying data:", error);
     res.status(500).json({ error: error.message });
