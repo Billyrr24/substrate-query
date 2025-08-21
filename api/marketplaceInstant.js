@@ -1,16 +1,6 @@
 // api/marketplaceInstant.js
 import { ApiPromise, WsProvider } from "@polkadot/api";
 
-// Helper to safely convert value to string
-function safeToString(value) {
-  if (value === undefined || value === null) return "0";
-  try {
-    return value.toString();
-  } catch {
-    return "0";
-  }
-}
-
 export default async function handler(req, res) {
   try {
     const provider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
@@ -75,7 +65,7 @@ export default async function handler(req, res) {
     );
 
     // --------------------
-    // 5. Assemble results
+    // 5. Assemble results with parallel cooperator queries
     // --------------------
     const results = [];
 
@@ -93,17 +83,22 @@ export default async function handler(req, res) {
 
       // Cooperators
       const collaborators = collabMap.get(address) || [];
-      let cooperatorStake = 0n;
-      for (const coop of collaborators) {
-        try {
-          const coopInfo = await api.query.energyGeneration.cooperators(coop);
-          if (coopInfo.isSome) {
-            const targets = coopInfo.unwrap().targets;
-            const stakeForValidator = targets[address] || 0;
-            cooperatorStake += BigInt(stakeForValidator);
-          }
-        } catch {}
-      }
+
+      // Parallel query all cooperator stakes
+      const stakes = await Promise.all(
+        collaborators.map(async (coop) => {
+          try {
+            const coopInfo = await api.query.energyGeneration.cooperators(coop);
+            if (coopInfo.isSome) {
+              const targets = coopInfo.unwrap().targets;
+              return BigInt(targets[address] || 0);
+            }
+          } catch {}
+          return 0n;
+        })
+      );
+
+      const cooperatorStake = stakes.reduce((a, b) => a + b, 0n);
       const numCooperators = collaborators.length;
 
       // Reputation
