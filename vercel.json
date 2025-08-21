@@ -5,6 +5,7 @@
     { "src": "api/DynamicVNRG.js",      "use": "@vercel/node" },
     { "src": "api/DynamicVNRG2.js",     "use": "@vercel/node" },
     { "src": "api/blockAuthors.js",     "use": "@vercel/node" },
+    { "src": "api/marketplaceInstant.js",      "use": "@vercel/node" },
 
     {
       "src": "api/extrinsicsRange.js",
@@ -26,6 +27,7 @@
     { "src": "/api/DynamicVNRG",     "dest": "/api/DynamicVNRG.js" },
     { "src": "/api/DynamicVNRG2",    "dest": "/api/DynamicVNRG2.js" },
     { "src": "/api/blockAuthors",    "dest": "/api/blockAuthors.js" },
+    { "src": "/api/marketplaceInstant",    "dest": "/api/marketplaceInstant.js" },
     { "src": "/api/extrinsicsRange", "dest": "/api/extrinsicsRange.js" },
     { "src": "/api/vipMembers",      "dest": "/api/vipMembers.js" },
     { "src": "/api/vesting",         "dest": "/api/vesting.js" },
