@@ -1,144 +1,40 @@
-// api/marketplaceInstant.js
-import { ApiPromise, WsProvider } from "@polkadot/api";
+import { ApiPromise, WsProvider } from '@polkadot/api';
 
 export default async function handler(req, res) {
   try {
-    const provider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
+    const provider = new WsProvider('wss://rpc-mainnet.vtrs.io:443');
     const api = await ApiPromise.create({ provider });
 
-    // --------------------
-    // 1. Validators
-    // --------------------
-    const validatorEntries = await api.query.energyGeneration.validators.entries();
+    // Query all collaborators in the cooperators pallet
+    const cooperators = await api.query.cooperators.collaborators.entries();
 
-    // --------------------
-    // 2. Ledger (solo stake)
-    // --------------------
-    const ledgerEntries = await api.query.energyGeneration.ledger.entries();
-    const ledgerMap = new Map(
-      ledgerEntries.map(([key, optValue]) => {
-        const address = key.args[0].toString();
-        let active = "0";
-        try {
-          active = optValue.isSome ? optValue.unwrap().active.toString() : "0";
-        } catch {}
-        return [address, active];
-      })
-    );
+    let filtered = [];
 
-    // --------------------
-    // 3. Collaborations (validator -> cooperators[])
-    // --------------------
-    const collabEntries = await api.query.energyGeneration.collaborations.entries();
-    const collabMap = new Map(
-      collabEntries.map(([key, optValue]) => {
-        const address = key.args[0].toString();
-        let collaborators = [];
-        try {
-          collaborators = optValue.isSome ? optValue.unwrap().toJSON() : [];
-        } catch {}
-        return [address, collaborators];
-      })
-    );
-
-    // --------------------
-    // 4. Reputation
-    // --------------------
-    const repEntries = await api.query.reputation.accountReputation.entries();
-    const repMap = new Map(
-      repEntries.map(([key, optValue]) => {
-        const address = key.args[0].toString();
-        let points = "0";
-        let tier = "Unknown";
-        try {
-          if (optValue.isSome) {
-            const rep = optValue.unwrap();
-            points = rep.reputation.points.toString();
-            const tierObj = rep.reputation.tier.toHuman();
-            const tierName = Object.keys(tierObj)[0] || "Unknown";
-            const tierValue = tierObj[tierName] ?? "";
-            tier = `${tierName} ${tierValue}`;
-          }
-        } catch {}
-        return [address, { points, tier }];
-      })
-    );
-
-    // --------------------
-    // 5. Gather all unique cooperator addresses for multi query
-    // --------------------
-    const allCooperatorsSet = new Set();
-    collabMap.forEach((cooperators) => {
-      cooperators.forEach((c) => allCooperatorsSet.add(c));
-    });
-    const allCooperators = Array.from(allCooperatorsSet);
-
-    // --------------------
-    // 6. Multi query cooperator info
-    // --------------------
-    const coopInfos = await api.query.energyGeneration.cooperators.multi(allCooperators);
-
-    // Map cooperator address -> targets (as plain object)
-    const coopMap = new Map();
-    allCooperators.forEach((address, idx) => {
-      let targetsObj = {};
-      try {
-        const info = coopInfos[idx];
-        if (info.isSome) {
-          const targets = info.unwrap().targets;
-          targetsObj = targets.toJSON ? targets.toJSON() : targets;
-        }
-      } catch {}
-      coopMap.set(address, targetsObj);
+    cooperators.forEach(([key, value]) => {
+      const data = value.toJSON();
+      if (data && data.stake && Number(data.stake) > 0) {
+        filtered.push({
+          address: key.args[0].toString(),
+          stake: Number(data.stake)
+        });
+      }
     });
 
-    // --------------------
-    // 7. Assemble results
-    // --------------------
-    const results = [];
+    // Only include wallets with > 0 stake
+    const cooperatorCount = filtered.length;
+    const cooperativeStakeTotal = filtered.reduce((sum, item) => sum + item.stake, 0);
 
-    for (const [key, value] of validatorEntries) {
-      const address = key.args[0].toString();
+    const response = {
+      cooperatorCount,
+      cooperativeStakeTotal,
+      cooperators: filtered
+    };
 
-      // Commission (Perbill -> percent)
-      let commission = 0;
-      try {
-        commission = Number(value.commission.toString()) / 10_000_000;
-      } catch {}
+    res.status(200).json(response);
 
-      // Solo stake
-      const soloStake = ledgerMap.get(address) || "0";
-
-      // Cooperators
-      const collaborators = collabMap.get(address) || [];
-      const cooperatorStake = collaborators.reduce((sum, coop) => {
-        const targetsObj = coopMap.get(coop) || {};
-        const stakeForValidator = BigInt(targetsObj[address] || 0);
-        return sum + stakeForValidator;
-      }, 0n);
-      const numCooperators = collaborators.length;
-
-      // Reputation
-      const repData = repMap.get(address) || { points: "0", tier: "Unknown" };
-      const reputationPoints = repData.points;
-      const tier = repData.tier;
-
-      results.push({
-        address,
-        commission,
-        cooperatorStake: cooperatorStake.toString(),
-        numCooperators,
-        reputationPoints,
-        tier,
-        soloStake,
-      });
-    }
-
-    await api.disconnect();
-    res.status(200).json(results);
-
+    await provider.disconnect();
   } catch (error) {
-    console.error("Error querying data:", error);
+    console.error(error);
     res.status(500).json({ error: error.message });
   }
 }
