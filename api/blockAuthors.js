@@ -1,36 +1,30 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 
-const WS_URL = 'wss://rpc-mainnet.vtrs.io:443';
+const RPC = 'wss://rpc-mainnet.vtrs.io:443';
 
 async function main() {
-  const provider = new WsProvider(WS_URL);
+  const provider = new WsProvider(RPC);
   const api = await ApiPromise.create({ provider });
 
-  const startBlock = 1000;
-  const endBlock = 1020;
+  // Define block range
+  const latest = await api.rpc.chain.getHeader();
+  const latestNumber = latest.number.toNumber();
+  const start = latestNumber - 200; // fetch last 200 blocks only
 
-  // Collect all block numbers
-  const blockNumbers = Array.from({ length: endBlock - startBlock + 1 }, (_, i) => startBlock + i);
+  console.log(`Fetching authors from block #${start} to #${latestNumber}`);
 
-  // Fetch all authors in parallel
-  const results = await Promise.all(
-    blockNumbers.map(async (blockNumber) => {
+  for (let blockNumber = start; blockNumber <= latestNumber; blockNumber++) {
+    try {
       const hash = await api.rpc.chain.getBlockHash(blockNumber);
-      const signedBlock = await api.rpc.chain.getBlock(hash);
+      const header = await api.derive.chain.getHeader(hash);
 
-      // Fetch author with api.derive
-      const { author } = await api.derive.chain.getHeader(signedBlock.block.header);
+      // author is always present
+      const author = header?.author?.toString() || 'unknown';
 
-      return {
-        blockNumber,
-        author: author?.toString() || 'Unknown',
-      };
-    })
-  );
-
-  // Print results
-  for (const { blockNumber, author } of results) {
-    console.log(`Block ${blockNumber}: ${author}`);
+      console.log(`Block #${blockNumber} authored by: ${author}`);
+    } catch (err) {
+      console.error(`Error fetching block #${blockNumber}:`, err.message);
+    }
   }
 
   await api.disconnect();
