@@ -1,10 +1,10 @@
-// File: /api/validatorActivity.js
+// File: /api/blockAuthors.js
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { stringToU8a } from '@polkadot/util';
 
 const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
-const MAX_BLOCKS = 200; // smaller batch for performance
+const MAX_BLOCKS = 200; // tune for performance
 
 export default async function handler(req, res) {
   try {
@@ -47,7 +47,6 @@ export default async function handler(req, res) {
     const currentBlock = (await api.rpc.chain.getHeader()).number.toNumber();
     const endBlock = Math.min(startBlock + MAX_BLOCKS, currentBlock);
 
-    // --- Process blocks in parallel ---
     const blockNumbers = [];
     for (let b = startBlock; b <= endBlock; b++) {
       blockNumbers.push(b);
@@ -58,8 +57,6 @@ export default async function handler(req, res) {
         try {
           const hash = await api.rpc.chain.getBlockHash(blockNumber);
           const header = await api.rpc.chain.getHeader(hash);
-
-          // Get system events for the block
           const events = await api.query.system.events.at(hash);
 
           const ts = Date.now() / 1000; // fallback timestamp
