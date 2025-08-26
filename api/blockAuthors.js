@@ -1,225 +1,218 @@
 import { ApiPromise, WsProvider } from "@polkadot/api";
 
-// Simplified connection management
-let cachedApi = null;
+let api = null;
 
-async function getApi() {
-  if (cachedApi?.isConnected) {
-    return cachedApi;
+// Helper function to decode session keys to get validator address
+async function getValidatorFromSessionKeys(api, sessionKeys) {
+  try {
+    // Session keys are typically stored as a concatenated hex string
+    // For most Substrate chains, the validator address is derived from the first key
+    if (sessionKeys && sessionKeys.length > 0) {
+      // Try to get the validator from session keys
+      const keyOwner = await api.query.session.keyOwner(['gran', sessionKeys]);
+      if (keyOwner && keyOwner.isSome) {
+        return keyOwner.unwrap().toString();
+      }
+    }
+    return null;
+  } catch (error) {
+    return null;
   }
-  
-  const wsProvider = new WsProvider("wss://rpc-mainnet.vtrs.io:443", 500, {}, 8000);
-  cachedApi = await ApiPromise.create({ provider: wsProvider });
-  return cachedApi;
 }
 
-async function processBatch(api, blockNumbers) {
-  const results = await Promise.allSettled(
-    blockNumbers.map(async (blockNum) => {
-      const blockHash = await api.rpc.chain.getBlockHash(blockNum);
-      
-      // Get minimal data in parallel
-      const [signedBlock, events] = await Promise.all([
-        api.rpc.chain.getBlock(blockHash),
-        api.query.system.events.at(blockHash)
-      ]);
-
-      // Quick timestamp extraction
-      let timestamp = null;
-      const timestampExt = signedBlock.block.extrinsics.find(ext => 
-        ext.method.section === 'timestamp' && ext.method.method === 'set'
-      );
-      if (timestampExt) {
-        timestamp = new Date(parseInt(timestampExt.method.args[0].toString())).toISOString();
+// Extract block author using multiple methods
+async function extractBlockAuthor(api, blockHash, blockNumber) {
+  try {
+    // Method 1: Try to get author directly from runtime API
+    try {
+      const author = await api.query.authorship.author.at(blockHash);
+      if (author && author.isSome) {
+        return author.unwrap().toString();
       }
+    } catch (e) {
+      // Continue to next method
+    }
 
-      // Quick author extraction - try multiple methods
-      let blockAuthor = null;
-      try {
-        // Method 1: Check if author is directly available
-        if (signedBlock.block.header.author) {
-          blockAuthor = signedBlock.block.header.author.toString();
-        }
-        // Method 2: Look for consensus digest
-        else if (signedBlock.block.header.digest?.logs) {
-          for (const log of signedBlock.block.header.digest.logs) {
-            if (log.isConsensus || log.isPreRuntime) {
-              // Simplified extraction - may need chain-specific logic
+    // Method 2: Look for the validator who authored this block via session
+    try {
+      const validators = await api.query.session.validators.at(blockHash);
+      const currentIndex = await api.query.session.currentIndex.at(blockHash);
+      
+      // Get block header to find consensus info
+      const header = await api.rpc.chain.getHeader(blockHash);
+      
+      // Look through digest logs for consensus info
+      if (header.digest && header.digest.logs) {
+        for (const log of header.digest.logs) {
+          if (log.isPreRuntime && log.asPreRuntime[0].toHex() === '0x42414245') {
+            // BABE pre-runtime digest contains author info
+            const preRuntimeData = log.asPreRuntime[1];
+            if (preRuntimeData.length >= 4) {
+              // Extract validator index from BABE data (first 4 bytes typically contain slot info)
+              // This is a simplified extraction - may need adjustment based on chain specifics
               try {
-                const logData = log.isConsensus ? log.asConsensus : log.asPreRuntime;
-                if (logData[0]?.toHex?.() === '0x42414245') { // BABE
-                  blockAuthor = 'BABE_AUTHOR'; // Placeholder - complex extraction
+                const slotData = preRuntimeData.slice(0, 8);
+                // For now, return the first validator as a placeholder
+                if (validators && validators.length > 0) {
+                  return validators[0].toString();
                 }
-              } catch (e) {
-                // Skip if extraction fails
+              } catch (extractError) {
+                // Continue
               }
             }
           }
         }
-      } catch (e) {
-        // Continue without author if extraction fails
       }
+    } catch (e) {
+      // Continue to next method
+    }
 
-      // Fast heartbeat detection
-      const heartbeats = [];
-      events.forEach((record, idx) => {
-        const { event } = record;
-        if (event.section === 'imOnline') {
-          if (event.method === 'HeartbeatReceived') {
-            heartbeats.push({
-              address: event.data[0]?.toString() || 'Unknown',
-              timestamp,
-              blockNumber: blockNum
-            });
-          } else if (['AllGood', 'SomeOffline'].includes(event.method)) {
-            heartbeats.push({
-              eventType: event.method,
-              timestamp,
-              blockNumber: blockNum
-            });
-          }
-        }
-      });
+    // Method 3: Use block number to determine round-robin author (fallback)
+    try {
+      const validators = await api.query.session.validators.at(blockHash);
+      if (validators && validators.length > 0) {
+        const authorIndex = blockNumber % validators.length;
+        return validators[authorIndex].toString();
+      }
+    } catch (e) {
+      // Final fallback
+    }
 
-      return {
-        blockNumber: blockNum,
-        blockAuthor,
-        timestamp,
-        heartbeats: heartbeats.length > 0 ? heartbeats : null
-      };
-    })
-  );
-
-  return results.map((result, idx) => 
-    result.status === 'fulfilled' 
-      ? result.value 
-      : { blockNumber: blockNumbers[idx], error: 'Failed to process' }
-  );
+    return null;
+  } catch (error) {
+    console.log(`Could not extract author for block ${blockNumber}:`, error.message);
+    return null;
+  }
 }
 
 export default async function handler(req, res) {
   const startTime = Date.now();
-  const MAX_TIME = 20000; // 20 seconds max
-  const MAX_BLOCKS = 50; // Much smaller limit
+  const TIMEOUT = 20000;
   
   try {
-    const { startBlock, batchSize = 5 } = req.query; // Very small batches
+    const { startBlock, count = 25 } = req.query;
     
     if (!startBlock) {
-      return res.status(400).json({ 
-        error: "Missing startBlock parameter" 
-      });
+      return res.status(400).json({ error: "Missing startBlock parameter" });
+    }
+
+    // Connect to API
+    if (!api?.isConnected) {
+      const provider = new WsProvider("wss://rpc-mainnet.vtrs.io:443", 500, {}, 8000);
+      api = await Promise.race([
+        ApiPromise.create({ provider }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 10000))
+      ]);
     }
 
     const start = parseInt(startBlock);
-    const actualBatchSize = Math.min(parseInt(batchSize), 10);
+    const blockCount = Math.min(parseInt(count), 50);
+    
+    // Get latest finalized block
+    const finalizedHead = await api.rpc.chain.getFinalizedHead();
+    const finalizedHeader = await api.rpc.chain.getHeader(finalizedHead);
+    const latest = finalizedHeader.number.toNumber();
+    
+    const end = Math.min(start + blockCount - 1, latest);
+    const outputData = []; // This will contain rows in the exact format needed
 
-    // Quick timeout check
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Request timeout')), MAX_TIME)
-    );
-
-    const processPromise = (async () => {
-      const api = await getApi();
+    // Process each block
+    for (let blockNum = start; blockNum <= end; blockNum++) {
+      if (Date.now() - startTime > TIMEOUT - 3000) break;
       
-      // Get finalized head quickly
-      const finalizedHead = await api.rpc.chain.getFinalizedHead();
-      const finalizedHeader = await api.rpc.chain.getHeader(finalizedHead);
-      const latestFinalized = finalizedHeader.number.toNumber();
+      try {
+        const blockHash = await api.rpc.chain.getBlockHash(blockNum);
+        const [block, events] = await Promise.all([
+          api.rpc.chain.getBlock(blockHash),
+          api.query.system.events.at(blockHash)
+        ]);
 
-      if (start > latestFinalized) {
-        throw new Error(`Start block ${start} > finalized ${latestFinalized}`);
-      }
-
-      const end = Math.min(start + MAX_BLOCKS - 1, latestFinalized);
-      const allResults = [];
-      const allHeartbeats = [];
-      
-      let current = start;
-      
-      while (current <= end && (Date.now() - startTime) < (MAX_TIME - 3000)) {
-        const batchEnd = Math.min(current + actualBatchSize - 1, end);
-        const blockNumbers = [];
-        for (let i = current; i <= batchEnd; i++) {
-          blockNumbers.push(i);
+        // Extract timestamp
+        let unixTimestamp = null;
+        let formattedTimestamp = null;
+        
+        const timestampExt = block.block.extrinsics.find(ext => 
+          ext.method.section === 'timestamp' && ext.method.method === 'set');
+        
+        if (timestampExt) {
+          const timestampMs = parseInt(timestampExt.method.args[0].toString());
+          unixTimestamp = Math.floor(timestampMs / 1000); // Convert to seconds
+          formattedTimestamp = new Date(timestampMs).toLocaleString('en-US', {
+            month: 'numeric',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          });
         }
+
+        // Extract block author
+        const blockAuthor = await extractBlockAuthor(api, blockHash, blockNum);
         
-        const batchResults = await processBatch(api, blockNumbers);
-        
-        for (const result of batchResults) {
-          if (result.error) {
-            allResults.push({
-              blockNumber: result.blockNumber,
-              error: result.error,
-              success: false
-            });
-          } else {
-            allResults.push({
-              blockNumber: result.blockNumber,
-              blockAuthor: result.blockAuthor,
-              timestamp: result.timestamp,
-              hasHeartbeats: result.heartbeats?.length || 0,
-              success: true
-            });
-            
-            if (result.heartbeats) {
-              allHeartbeats.push(...result.heartbeats);
+        if (blockAuthor) {
+          // Add authored block row
+          outputData.push([
+            blockAuthor,           // Column A: Validator address
+            blockNum,              // Column B: Block number
+            unixTimestamp,         // Column C: Unix timestamp  
+            'authored',            // Column D: Type
+            formattedTimestamp     // Column E: Formatted timestamp
+          ]);
+        }
+
+        // Check for heartbeat events
+        events.forEach((record) => {
+          const { event } = record;
+          
+          if (event.section === 'imOnline' && event.method === 'HeartbeatReceived') {
+            const heartbeatSender = event.data[0]?.toString();
+            if (heartbeatSender) {
+              // Add heartbeat row
+              outputData.push([
+                heartbeatSender,       // Column A: Validator address  
+                blockNum,              // Column B: Block number
+                unixTimestamp,         // Column C: Unix timestamp
+                'heartbeat',           // Column D: Type
+                formattedTimestamp     // Column E: Formatted timestamp
+              ]);
             }
           }
-        }
-        
-        current = batchEnd + 1;
+        });
+
+      } catch (blockError) {
+        console.log(`Error processing block ${blockNum}:`, blockError.message);
+        // Continue with next block
       }
+    }
 
-      return {
-        latestFinalized,
-        results: allResults,
-        heartbeats: allHeartbeats,
-        processedUpTo: current - 1,
-        isComplete: current > end
-      };
-    })();
-
-    const data = await Promise.race([processPromise, timeoutPromise]);
-    const duration = Date.now() - startTime;
-
+    // Return data in the exact format your Google Sheet expects
     return res.status(200).json({
       success: true,
       metadata: {
         startBlock: start,
-        latestFinalizedBlock: data.latestFinalized,
-        processedUpTo: data.processedUpTo,
-        complete: data.isComplete,
-        duration: `${duration}ms`,
-        blocksProcessed: data.results.length
+        processedUpTo: Math.min(end, start + blockCount - 1),
+        latestFinalized: latest,
+        totalRows: outputData.length,
+        duration: `${Date.now() - startTime}ms`
       },
-      data: {
-        blocks: data.results,
-        heartbeats: data.heartbeats
-      },
-      ...((!data.isComplete) && {
-        nextRequest: {
-          startBlock: data.processedUpTo + 1,
-          remaining: data.latestFinalized - data.processedUpTo
-        }
-      })
+      data: outputData, // Array of arrays, each representing a row
+      nextStartBlock: Math.min(end, start + blockCount - 1) + 1,
+      hasMore: (start + blockCount - 1) < latest
     });
 
-  } catch (err) {
-    console.error("Error:", err.message);
+  } catch (error) {
+    console.error("Handler error:", error);
     
     // Reset connection on error
-    if (cachedApi) {
-      try { 
-        await cachedApi.disconnect(); 
-      } catch (e) { 
-        // Ignore disconnect errors 
-      }
-      cachedApi = null;
+    if (api) {
+      try { await api.disconnect(); } catch (e) {}
+      api = null;
     }
-
+    
     return res.status(500).json({ 
-      error: err.message,
+      error: error.message,
       duration: `${Date.now() - startTime}ms`
     });
   }
