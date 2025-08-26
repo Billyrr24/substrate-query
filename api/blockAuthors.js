@@ -1,84 +1,50 @@
-import { ApiPromise, WsProvider } from '@polkadot/api';
-import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { stringToU8a } from '@polkadot/util';
-import pLimit from 'p-limit';
-
-const WS_ENDPOINT = 'wss://rpc-mainnet.vtrs.io:443';
-const CONCURRENCY = 10;
+import { ApiPromise, WsProvider } from "@polkadot/api";
 
 export default async function handler(req, res) {
   try {
-    const startBlockParam = req.query.startBlock;
-    let startBlock = parseInt(startBlockParam, 10);
-    if (!startBlock || isNaN(startBlock) || startBlock < 0)
-      return res.status(400).json({ error: 'Missing or invalid `startBlock` parameter' });
+    const { startBlock, endBlock, batchSize = 50 } = req.query;
 
-    startBlock++;
-    await cryptoWaitReady();
-    const api = await ApiPromise.create({ provider: new WsProvider(WS_ENDPOINT) });
-    await api.isReady;
+    if (!startBlock || !endBlock) {
+      return res.status(400).json({ error: "Missing startBlock or endBlock" });
+    }
 
-    const validators = (await api.query.session.validators()).map(v => v.toString().toLowerCase());
-    const validatorData = Object.fromEntries(validators.map(v => [v, { authored: [], heartbeats: [] }]));
+    const wsProvider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
+    const api = await ApiPromise.create({ provider: wsProvider });
 
-    const authorityToValidator = {};
-    const queriedKeyOwners = new Set();
+    const results = [];
+    let current = parseInt(startBlock);
 
-    const latestBlock = (await api.rpc.chain.getHeader()).number.toNumber();
-    const blocksToFetch = Array.from({ length: latestBlock - startBlock + 1 }, (_, i) => startBlock + i);
-    const limit = pLimit(CONCURRENCY);
+    while (current <= endBlock) {
+      const batchEnd = Math.min(current + batchSize - 1, endBlock);
 
-    await Promise.all(
-      blocksToFetch.map(blockNumber =>
-        limit(async () => {
-          try {
-            const signedBlock = await api.rpc.chain.getBlock(blockNumber);
-            const header = signedBlock.block.header;
+      const blockPromises = [];
+      for (let b = current; b <= batchEnd; b++) {
+        blockPromises.push(api.rpc.chain.getBlockHash(b)
+          .then((hash) => api.rpc.chain.getBlock(hash)
+            .then((block) => ({
+              blockNumber: b,
+              hash: hash.toHex(),
+              extrinsicsCount: block.block.extrinsics.length,
+            }))));
+      }
 
-            // Timestamp from extrinsics
-            const tsExtrinsic = signedBlock.block.extrinsics.find(e => e.method.section === 'timestamp');
-            const ts = tsExtrinsic ? Math.floor(tsExtrinsic.method.args[0].toNumber() / 1000) : Math.floor(Date.now() / 1000);
+      const settled = await Promise.allSettled(blockPromises);
+      for (const r of settled) {
+        if (r.status === "fulfilled") {
+          results.push(r.value);
+        } else {
+          results.push({ error: r.reason?.message || "Query failed" });
+        }
+      }
 
-            // Authored
-            const author = header?.author?.toString()?.toLowerCase();
-            if (author && validatorData[author]) validatorData[author].authored.push({ block: blockNumber, time: ts });
-
-            // Heartbeats: scan extrinsics only
-            for (const extrinsic of signedBlock.block.extrinsics) {
-              if (extrinsic.method.section === 'imOnline' && extrinsic.method.method === 'heartbeat') {
-                const authorityHex = extrinsic.signer.toHex().toLowerCase();
-                if (!authorityToValidator[authorityHex] && !queriedKeyOwners.has(authorityHex)) {
-                  queriedKeyOwners.add(authorityHex);
-                  try {
-                    const keyTypeId = stringToU8a('imon');
-                    const keyOwner = await api.query.session.keyOwner.at(await api.rpc.chain.getBlockHash(blockNumber), [keyTypeId, extrinsic.signer]);
-                    if (keyOwner.isSome) authorityToValidator[authorityHex] = keyOwner.unwrap().toString().toLowerCase();
-                  } catch (_) {}
-                }
-
-                const validator = authorityToValidator[authorityHex];
-                if (validator && validatorData[validator]) validatorData[validator].heartbeats.push({ block: blockNumber, time: ts });
-              }
-            }
-          } catch (_) {}
-        })
-      )
-    );
+      current += batchSize;
+    }
 
     await api.disconnect();
 
-    const filtered = {};
-    for (const [v, data] of Object.entries(validatorData)) {
-      if (data.authored.length || data.heartbeats.length) filtered[v] = data;
-    }
-
-    res.status(200).json({
-      fromBlock: startBlock,
-      toBlock: latestBlock,
-      scannedAt: Math.floor(Date.now() / 1000),
-      validators: filtered,
-    });
+    return res.status(200).json({ count: results.length, blocks: results });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Unknown error occurred' });
+    console.error("Handler error:", err);
+    return res.status(500).json({ error: err.message });
   }
 }
