@@ -1,44 +1,61 @@
+import { NextResponse } from "next/server";
 import { ApiPromise, WsProvider } from "@polkadot/api";
+import { Redis } from "@upstash/redis";
 
-export default async function handler(req, res) {
+const RPC_URL = "wss://rpc-mainnet.vtrs.io:443";
+const KV_NAMESPACE = "energyLedger";
+const BATCH_SIZE = 500;
+
+// KV client (Upstash Redis via Vercel KV)
+const redis = Redis.fromEnv();
+
+export const dynamic = "force-dynamic"; // Disable caching at edge
+
+export async function GET() {
   try {
-    const { startBlock, endBlock } = req.query;
-    if (!startBlock || !endBlock) {
-      return res.status(400).json({ error: "Missing startBlock or endBlock" });
+    // Step 1: Check if cached full result already exists
+    const cached = await redis.get(`${KV_NAMESPACE}:final`);
+    if (cached) {
+      return NextResponse.json(JSON.parse(cached));
     }
 
-    const provider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
+    // Step 2: Connect to chain
+    const provider = new WsProvider(RPC_URL);
     const api = await ApiPromise.create({ provider });
 
-    const results = [];
-    const batchSize = 10; // process 10 blocks at a time
+    // Step 3: Get all ledger entries
+    const entries = await api.query.energyGeneration.ledger.entries();
+    const accounts = entries.map(([key, codec]) => {
+      const account = key.args[0].toString();
+      const data = codec.toJSON();
+      return { account, ...data };
+    });
 
-    for (let i = parseInt(startBlock); i <= parseInt(endBlock); i += batchSize) {
-      const batchEnd = Math.min(i + batchSize - 1, parseInt(endBlock));
-      const blockRange = [];
+    // Step 4: Chunk + cache progress
+    let results = [];
+    for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
+      const chunk = accounts.slice(i, i + BATCH_SIZE);
+      results = results.concat(chunk);
 
-      for (let j = i; j <= batchEnd; j++) {
-        const blockHash = await api.rpc.chain.getBlockHash(j);
-        const signedBlock = await api.rpc.chain.getBlock(blockHash);
-
-        blockRange.push({
-          blockNumber: j,
-          blockHash: blockHash.toString(),
-          extrinsics: signedBlock.block.extrinsics.length,
-        });
-      }
-
-      results.push(...blockRange);
-
-      // short pause to avoid hammering RPC + give Vercel breathing room
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Store partial results (so retries don’t restart from scratch)
+      await redis.set(
+        `${KV_NAMESPACE}:chunk:${i / BATCH_SIZE}`,
+        JSON.stringify(chunk),
+        { ex: 60 * 60 } // 1 hour
+      );
     }
 
-    await api.disconnect();
+    // Step 5: Cache final merged result
+    await redis.set(`${KV_NAMESPACE}:final`, JSON.stringify(results), {
+      ex: 60 * 60, // 1 hour
+    });
 
-    return res.status(200).json(results);
-  } catch (err) {
-    console.error("Error fetching blocks:", err);
-    return res.status(500).json({ error: err.message });
+    return NextResponse.json(results);
+  } catch (error) {
+    console.error("Error fetching energy ledger:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch energy ledger" },
+      { status: 500 }
+    );
   }
 }
