@@ -1,59 +1,62 @@
-// filename: blockAuthors.js
-import { ApiPromise, WsProvider } from '@polkadot/api';
-import { options } from '@polkadot/api/options';
-import { cryptoWaitReady } from '@polkadot/util-crypto';
+import { ApiPromise, WsProvider } from "@polkadot/api";
 
-async function main() {
-  await cryptoWaitReady();
-  const provider = new WsProvider('wss://rpc-mainnet.vtrs.io:443');
-  const api = await ApiPromise.create(options({ provider }));
+export default async function handler(req, res) {
+  try {
+    const { startBlock = 0, limit = 100 } = req.query;
 
-  // Change this to your desired starting block
-  const startBlock = 1000000; 
+    const wsProvider = new WsProvider("wss://rpc-mainnet.vtrs.io:443");
+    const api = await ApiPromise.create({ provider: wsProvider });
 
-  // Fetch latest block number automatically
-  const latestHash = await api.rpc.chain.getFinalizedHead();
-  const latestHeader = await api.rpc.chain.getHeader(latestHash);
-  const endBlock = latestHeader.number.toNumber();
+    const start = parseInt(startBlock);
+    const maxBlocks = parseInt(limit);
 
-  console.log(`Fetching blocks from ${startBlock} to ${endBlock}...\n`);
+    let results = [];
 
-  for (let blockNumber = startBlock; blockNumber <= endBlock; blockNumber++) {
-    try {
-      const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
-      const signedBlock = await api.rpc.chain.getBlock(blockHash);
+    for (let i = 0; i < maxBlocks; i++) {
+      const blockNumber = start + i;
 
-      // Get author
-      const blockHeader = await api.rpc.chain.getHeader(blockHash);
-      const author = (await api.derive.chain.getHeader(blockHeader)).author?.toString() || 'Unknown';
+      try {
+        const hash = await api.rpc.chain.getBlockHash(blockNumber);
+        const signedBlock = await api.rpc.chain.getBlock(hash);
 
-      // Get timestamp (from timestamp.set extrinsic)
-      let timestamp = null;
-      signedBlock.block.extrinsics.forEach((ext) => {
-        const { method } = ext;
-        if (method.section === 'timestamp' && method.method === 'set') {
-          timestamp = method.args[0].toHuman();
+        const timestamp = await api.query.timestamp.now.at(hash);
+        const digest = signedBlock.block.header.digest;
+
+        // Extract author
+        const author = digest.logs
+          .filter(log => log.isPreRuntime)
+          .map(log => {
+            const [consensusEngine, authorRaw] = log.asPreRuntime;
+            return authorRaw.toString();
+          })[0] || "Unknown";
+
+        // Heartbeat info
+        let heartbeat = "N/A";
+        try {
+          const heartbeats = await api.query.imOnline?.receivedHeartbeats.at(hash);
+          heartbeat = heartbeats ? JSON.stringify(heartbeats.toHuman()) : "N/A";
+        } catch {
+          heartbeat = "Not available";
         }
-      });
 
-      // Check for heartbeat extrinsic
-      let heartbeatSent = false;
-      signedBlock.block.extrinsics.forEach((ext) => {
-        const { method } = ext;
-        if (method.section === 'imOnline' && method.method === 'heartbeat') {
-          heartbeatSent = true;
-        }
-      });
+        results.push({
+          blockNumber,
+          hash: hash.toString(),
+          author,
+          timestamp: new Date(timestamp.toNumber()).toISOString(),
+          heartbeat
+        });
 
-      console.log(
-        `Block #${blockNumber} | Author: ${author} | Timestamp: ${timestamp} | Heartbeat: ${heartbeatSent}`
-      );
-    } catch (err) {
-      console.error(`Error at block ${blockNumber}:`, err.message);
+      } catch (err) {
+        console.error(`Error fetching block ${blockNumber}:`, err.message);
+      }
     }
+
+    await api.disconnect();
+    res.status(200).json({ results });
+
+  } catch (error) {
+    console.error("Fatal error:", error);
+    res.status(500).json({ error: error.message });
   }
-
-  await api.disconnect();
 }
-
-main().catch(console.error);
